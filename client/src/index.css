@@ -1,0 +1,75 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+
+  /* Page sits on a soft warm neutral; cards are the dark-navy surfaces. */
+  --background: oklch(0.975 0.006 80);
+  --foreground: oklch(0.24 0.03 262);
+
+  --card: oklch(0.225 0.045 264);
+  --card-foreground: oklch(0.96 0.006 250);
+
+  --primary: oklch(0.96 0.006 250);
+  --primary-foreground: oklch(0.225 0.045 264);
+  --secondary: oklch(0.32 0.04 264);
+  --secondary-foreground: oklch(0.96 0.006 250);
+
+  /* Muted text/track tokens are tuned for the dark card surface, since
+     every card in this app is dark navy. */
+  --muted: oklch(0.32 0.04 264);
+  --muted-foreground: oklch(0.72 0.03 250);
+  --accent: oklch(0.32 0.04 264);
+  --accent-foreground: oklch(0.96 0.006 250);
+
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(0.4 0.045 264 / 55%);
+  --input: oklch(0.4 0.045 264 / 55%);
+  --ring: oklch(0.6 0.08 260);
+
+  --brand: oklch(0.62 0.16 258);
+  --brand-foreground: oklch(0.98 0.008 258);
+
+  --track: oklch(0.34 0.035 264);
+  --ring-consumed: oklch(0.68 0.15 250);
+  --ring-expenditure: oklch(0.68 0.16 310);
+  --ring-remaining: oklch(0.7 0.13 190);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-track: var(--track);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fittrack
+      POSTGRES_USER: fittrack
+      POSTGRES_PASSWORD: fittrack
+    ports:
+      - "5432:5432"
+    volumes:
+      - fittrack_pgdata:/var/lib/postgresql/data
+      - ./server/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+volumes:
+  fittrack_pgdata:
