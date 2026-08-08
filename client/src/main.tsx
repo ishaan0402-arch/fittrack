@@ -14,3 +14,13 @@ createRoot(document.getElementById('root')!).render(
     </BrowserRouter>
   </StrictMode>,
 )
+
+// Registered post-load so it never competes with the initial page render;
+// failures (e.g. running over plain http:// in some dev setups) are safe to
+// ignore since the app works fully without it — this only adds installability
+// and a bit of offline resilience for the app shell.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {})
+  })
+}

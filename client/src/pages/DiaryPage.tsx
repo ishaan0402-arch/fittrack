@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { CopyPlus, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { Camera, CopyPlus, Pencil, Plus, Search, Trash2, Type, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -17,6 +17,8 @@ import {
   updateLogEntry,
   logFood,
   createCustomFood,
+  estimatePhotoNutrition,
+  estimateTextNutrition,
   getProfile,
   defaultMealType,
   MEAL_TYPES,
@@ -25,6 +27,7 @@ import {
   type DayTotals,
   type LogEntry,
   type NutrientTotal,
+  type NutritionEstimateItem,
   type Profile,
   type MealType,
 } from '@/api'
@@ -40,6 +43,31 @@ function yesterdayKey(): string {
   const d = new Date()
   d.setDate(d.getDate() - 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Form-editable mirror of NutritionEstimateItem — numbers as strings so they
+// bind directly to <Input> the same way every other editable-quantity form
+// here does. Shared by both the photo and text AI-logging flows.
+interface EditableNutritionItem {
+  description: string
+  quantityGrams: string
+  calories: string
+  proteinG: string
+  carbsG: string
+  fatG: string
+  note: string
+}
+
+function toEditableItems(items: NutritionEstimateItem[]): EditableNutritionItem[] {
+  return items.map((item) => ({
+    description: item.description,
+    quantityGrams: String(Math.round(item.estimatedQuantityGrams)),
+    calories: String(Math.round(item.calories)),
+    proteinG: String(Math.round(item.proteinG)),
+    carbsG: String(Math.round(item.carbsG)),
+    fatG: String(Math.round(item.fatG)),
+    note: item.note,
+  }))
 }
 
 export function DiaryPage() {
@@ -61,6 +89,10 @@ export function DiaryPage() {
   })
   const [nutrients, setNutrients] = useState<NutrientTotal[]>([])
   const [copying, setCopying] = useState(false)
+  const [copyDateOpen, setCopyDateOpen] = useState(false)
+  const [copyDate, setCopyDate] = useState('')
+  const [undoEntry, setUndoEntry] = useState<LogEntry | null>(null)
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [editingEntryId, setEditingEntryId] = useState<number | null>(null)
   const [editQuantity, setEditQuantity] = useState('')
@@ -72,6 +104,14 @@ export function DiaryPage() {
   const [quickDescription, setQuickDescription] = useState('')
   const [quickMealType, setQuickMealType] = useState<MealType>(defaultMealType())
   const [quickAdding, setQuickAdding] = useState(false)
+
+  const [aiAnalyzing, setAiAnalyzing] = useState(false)
+  const [aiItems, setAiItems] = useState<EditableNutritionItem[] | null>(null)
+  const [aiMealType, setAiMealType] = useState<MealType>(defaultMealType())
+  const [aiLogging, setAiLogging] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const [textLogOpen, setTextLogOpen] = useState(false)
+  const [textDescription, setTextDescription] = useState('')
 
   const refreshLog = () => {
     getTodayLog()
@@ -106,9 +146,29 @@ export function DiaryPage() {
     }
   }
 
-  const handleRemove = async (id: number) => {
+  const handleRemove = async (entry: LogEntry) => {
     try {
-      await deleteLogEntry(id)
+      await deleteLogEntry(entry.id)
+      refreshLog()
+      setUndoEntry(entry)
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+      undoTimerRef.current = setTimeout(() => setUndoEntry(null), 6000)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  // Re-logs the same food/quantity/note/meal type as a new entry — the
+  // deleted row itself is gone, but the result is indistinguishable to the
+  // user. No new backend endpoint needed since the entry's data is already
+  // in hand from before the delete call.
+  const handleUndoRemove = async () => {
+    if (!undoEntry) return
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    const entry = undoEntry
+    setUndoEntry(null)
+    try {
+      await logFood(entry.food_id, Number(entry.quantity_grams), entry.note ?? undefined, entry.meal_type)
       refreshLog()
     } catch (e) {
       setError((e as Error).message)
@@ -165,19 +225,100 @@ export function DiaryPage() {
     }
   }
 
-  const handleCopyYesterday = async () => {
+  const handlePhotoSelected = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (photoInputRef.current) photoInputRef.current.value = ''
+    if (!file) return
+
+    setAiAnalyzing(true)
+    setAiItems(null)
+    setError(null)
+    try {
+      const result = await estimatePhotoNutrition(file)
+      setAiItems(toEditableItems(result.items))
+      setAiMealType(defaultMealType())
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setAiAnalyzing(false)
+    }
+  }
+
+  const handleTextEstimate = async (e: FormEvent) => {
+    e.preventDefault()
+    const description = textDescription.trim()
+    if (!description) return
+
+    setAiAnalyzing(true)
+    setAiItems(null)
+    setError(null)
+    try {
+      const result = await estimateTextNutrition(description)
+      setAiItems(toEditableItems(result.items))
+      setAiMealType(defaultMealType())
+      setTextDescription('')
+      setTextLogOpen(false)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setAiAnalyzing(false)
+    }
+  }
+
+  const updateAiItem = (index: number, patch: Partial<EditableNutritionItem>) => {
+    setAiItems((items) => items && items.map((it, i) => (i === index ? { ...it, ...patch } : it)))
+  }
+
+  const removeAiItem = (index: number) => {
+    setAiItems((items) => items && items.filter((_, i) => i !== index))
+  }
+
+  // Same one-off-custom-food trick as Quick Add: each item becomes its own
+  // food row sized exactly to what's being logged (servingSizeGrams ==
+  // quantityGrams), so the numbers the user confirmed reproduce exactly.
+  const confirmAiLog = async () => {
+    if (!aiItems || aiItems.length === 0) return
+    setAiLogging(true)
+    setError(null)
+    try {
+      for (const item of aiItems) {
+        const grams = Number(item.quantityGrams)
+        const calories = Number(item.calories)
+        if (!grams || grams <= 0 || !calories || calories < 0) continue
+        const food = await createCustomFood({
+          description: item.description.trim() || 'AI logged food',
+          servingSizeGrams: grams,
+          calories,
+          protein: Number(item.proteinG) || undefined,
+          carbs: Number(item.carbsG) || undefined,
+          fat: Number(item.fatG) || undefined,
+        })
+        await logFood(food.id, grams, undefined, aiMealType)
+      }
+      setAiItems(null)
+      refreshLog()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setAiLogging(false)
+    }
+  }
+
+  const handleCopyFromDate = async (dateKey: string) => {
+    if (!dateKey) return
     setCopying(true)
     setError(null)
     try {
-      const yesterday = await getLogForDate(yesterdayKey())
-      if (yesterday.entries.length === 0) {
-        setError("Nothing was logged yesterday.")
+      const source = await getLogForDate(dateKey)
+      if (source.entries.length === 0) {
+        setError(`Nothing was logged on ${dateKey}.`)
         return
       }
-      for (const entry of yesterday.entries) {
+      for (const entry of source.entries) {
         await logFood(entry.food_id, Number(entry.quantity_grams), entry.note ?? undefined, entry.meal_type)
       }
       refreshLog()
+      setCopyDateOpen(false)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -194,6 +335,20 @@ export function DiaryPage() {
         <p className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
           {error}
         </p>
+      )}
+
+      {undoEntry && (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-accent px-4 py-2 text-sm text-card-foreground">
+          <span className="truncate">Removed "{undoEntry.description}".</span>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button size="sm" variant="outline" onClick={handleUndoRemove}>
+              Undo
+            </Button>
+            <Button size="icon" variant="ghost" aria-label="Dismiss" onClick={() => setUndoEntry(null)}>
+              <X size={16} />
+            </Button>
+          </div>
+        </div>
       )}
 
       <Card>
@@ -315,6 +470,176 @@ export function DiaryPage() {
                   Quick add calories
                 </Button>
               )}
+
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs text-muted-foreground">or</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+
+              {aiAnalyzing ? (
+                <p className="rounded-md border border-dashed p-3 text-center text-sm text-muted-foreground">
+                  Analyzing…
+                </p>
+              ) : aiItems ? (
+                <div className="space-y-3 rounded-md bg-accent p-3">
+                  {aiItems.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Couldn't identify any food there. Try again with more detail, or add it manually above.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                        Review before logging
+                      </p>
+                      {aiItems.map((item, index) => (
+                        <div key={index} className="space-y-2 rounded-md border bg-card p-2.5">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={item.description}
+                              onChange={(e) => updateAiItem(index, { description: e.target.value })}
+                              className="flex-1"
+                            />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              aria-label="Remove item"
+                              onClick={() => removeAiItem(index)}
+                            >
+                              <X size={15} />
+                            </Button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={item.quantityGrams}
+                                onChange={(e) => updateAiItem(index, { quantityGrams: e.target.value })}
+                                className="w-20"
+                              />
+                              <span className="text-xs text-muted-foreground">g</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={item.calories}
+                                onChange={(e) => updateAiItem(index, { calories: e.target.value })}
+                                className="w-20"
+                              />
+                              <span className="text-xs text-muted-foreground">kcal</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={item.proteinG}
+                                onChange={(e) => updateAiItem(index, { proteinG: e.target.value })}
+                                className="w-16"
+                              />
+                              <span className="text-xs text-muted-foreground">P</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={item.carbsG}
+                                onChange={(e) => updateAiItem(index, { carbsG: e.target.value })}
+                                className="w-16"
+                              />
+                              <span className="text-xs text-muted-foreground">C</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={item.fatG}
+                                onChange={(e) => updateAiItem(index, { fatG: e.target.value })}
+                                className="w-16"
+                              />
+                              <span className="text-xs text-muted-foreground">F</span>
+                            </div>
+                          </div>
+                          {item.note && <p className="text-xs text-muted-foreground">{item.note}</p>}
+                        </div>
+                      ))}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={aiMealType}
+                          onChange={(e) => setAiMealType(e.target.value as MealType)}
+                          className="h-9 rounded-md border border-input bg-transparent px-2 text-sm text-card-foreground outline-none"
+                        >
+                          {MEAL_TYPES.map((mt) => (
+                            <option key={mt} value={mt}>
+                              {MEAL_TYPE_LABELS[mt]}
+                            </option>
+                          ))}
+                        </select>
+                        <Button size="sm" onClick={confirmAiLog} disabled={aiLogging}>
+                          {aiLogging
+                            ? 'Logging…'
+                            : `Log ${aiItems.length} item${aiItems.length === 1 ? '' : 's'}`}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => setAiItems(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              ) : textLogOpen ? (
+                <form onSubmit={handleTextEstimate} className="space-y-2 rounded-md bg-accent p-3">
+                  <Input
+                    value={textDescription}
+                    onChange={(e) => setTextDescription(e.target.value)}
+                    placeholder="e.g. grilled chicken sandwich and a side salad"
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button type="submit" size="sm" disabled={!textDescription.trim()}>
+                      Estimate nutrition
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setTextLogOpen(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handlePhotoSelected}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => photoInputRef.current?.click()}
+                  >
+                    <Camera />
+                    Photo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setTextLogOpen(true)}
+                  >
+                    <Type />
+                    Describe it
+                  </Button>
+                </div>
+              )}
             </>
           )}
 
@@ -338,12 +663,37 @@ export function DiaryPage() {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <CardTitle>Today's log</CardTitle>
-          <Button size="sm" variant="outline" onClick={handleCopyYesterday} disabled={copying}>
-            <CopyPlus />
-            {copying ? 'Copying…' : 'Copy yesterday'}
-          </Button>
+          {copyDateOpen ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={copyDate}
+                max={yesterdayKey()}
+                onChange={(e) => setCopyDate(e.target.value)}
+                className="h-8 rounded-md border border-input bg-transparent px-2 text-sm text-card-foreground outline-none"
+              />
+              <Button size="sm" onClick={() => handleCopyFromDate(copyDate)} disabled={!copyDate || copying}>
+                {copying ? 'Copying…' : 'Copy'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setCopyDateOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setCopyDate(yesterdayKey())
+                setCopyDateOpen(true)
+              }}
+            >
+              <CopyPlus />
+              Copy a day
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="space-y-5">
           {entries.length === 0 ? (
@@ -392,7 +742,7 @@ export function DiaryPage() {
                                   size="icon"
                                   variant="ghost"
                                   aria-label="Remove entry"
-                                  onClick={() => handleRemove(entry.id)}
+                                  onClick={() => handleRemove(entry)}
                                 >
                                   <Trash2 className="text-destructive" />
                                 </Button>

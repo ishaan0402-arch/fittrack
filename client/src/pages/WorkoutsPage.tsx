@@ -4,16 +4,19 @@ import { AppLayout } from '@/components/app-layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { LineTrendChart } from '@/components/trend-charts'
 import { cn } from '@/lib/utils'
 import {
   getWorkoutsForMonth,
   saveWorkout,
   deleteWorkout,
   getExerciseHistory,
+  getWorkoutVolume,
   type Workout,
   type WorkoutExercise,
   type FeltRating,
   type ExerciseHistoryEntry,
+  type WeeklyVolume,
 } from '@/api'
 
 const FELT_OPTIONS: { value: FeltRating; label: string }[] = [
@@ -25,6 +28,33 @@ const FELT_OPTIONS: { value: FeltRating; label: string }[] = [
 ]
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// A standard gym exercise list, offered as options alongside whatever the
+// user has personally logged before — the exercise name field stays free
+// text (see the exercise-names datalist below), so anything not on this
+// list is still just a custom name away.
+const COMMON_EXERCISES = [
+  // Chest
+  'Bench Press', 'Incline Bench Press', 'Decline Bench Press', 'Dumbbell Bench Press',
+  'Incline Dumbbell Press', 'Chest Fly', 'Cable Fly', 'Push-Up', 'Dips',
+  // Back
+  'Deadlift', 'Pull-Up', 'Chin-Up', 'Lat Pulldown', 'Barbell Row', 'Dumbbell Row',
+  'Seated Cable Row', 'T-Bar Row', 'Face Pull',
+  // Shoulders
+  'Overhead Press', 'Dumbbell Shoulder Press', 'Arnold Press', 'Lateral Raise',
+  'Front Raise', 'Rear Delt Fly', 'Upright Row', 'Shrugs',
+  // Legs
+  'Squat', 'Front Squat', 'Leg Press', 'Lunges', 'Bulgarian Split Squat',
+  'Romanian Deadlift', 'Leg Curl', 'Leg Extension', 'Calf Raise', 'Hip Thrust', 'Goblet Squat',
+  // Arms
+  'Bicep Curl', 'Hammer Curl', 'Barbell Curl', 'Preacher Curl', 'Tricep Pushdown',
+  'Tricep Extension', 'Skull Crushers', 'Close-Grip Bench Press',
+  // Core
+  'Plank', 'Crunches', 'Sit-Up', 'Russian Twist', 'Leg Raise', 'Cable Crunch',
+  'Ab Wheel Rollout', 'Hanging Leg Raise',
+  // Cardio / other
+  'Running', 'Cycling', 'Rowing Machine', 'Jump Rope', 'Burpees',
+]
 
 function toDateKey(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -58,6 +88,7 @@ export function WorkoutsPage() {
   })
   const [workouts, setWorkouts] = useState<Record<string, Workout>>({})
   const [exerciseHistory, setExerciseHistory] = useState<Record<string, ExerciseHistoryEntry>>({})
+  const [volume, setVolume] = useState<WeeklyVolume[]>([])
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>(todayKey())
   const [form, setForm] = useState<EditForm>(EMPTY_FORM)
@@ -85,6 +116,14 @@ export function WorkoutsPage() {
       .catch((e) => setError((e as Error).message))
   }, [])
 
+  const refreshVolume = () => {
+    getWorkoutVolume()
+      .then(setVolume)
+      .catch((e) => setError((e as Error).message))
+  }
+
+  useEffect(refreshVolume, [])
+
   useEffect(() => {
     const existing = workouts[selectedDate]
     if (existing) {
@@ -99,10 +138,12 @@ export function WorkoutsPage() {
     }
   }, [selectedDate, workouts])
 
-  const exerciseNames = useMemo(
-    () => Object.values(exerciseHistory).map((h) => h.name),
-    [exerciseHistory]
-  )
+  const exerciseNames = useMemo(() => {
+    const fromHistory = Object.values(exerciseHistory).map((h) => h.name)
+    return Array.from(new Set([...COMMON_EXERCISES, ...fromHistory])).sort((a, b) =>
+      a.localeCompare(b)
+    )
+  }, [exerciseHistory])
 
   const cells = useMemo(() => {
     const firstWeekday = new Date(cursor.year, cursor.month - 1, 1).getDay()
@@ -153,6 +194,7 @@ export function WorkoutsPage() {
         for (const row of rows) map[row.name.trim().toLowerCase()] = row
         setExerciseHistory(map)
       })
+      refreshVolume()
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -167,6 +209,7 @@ export function WorkoutsPage() {
       await deleteWorkout(selectedDate)
       setForm(EMPTY_FORM)
       refresh()
+      refreshVolume()
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -397,6 +440,26 @@ export function WorkoutsPage() {
               </Button>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Weekly volume</CardTitle>
+          <CardDescription>
+            Total weight moved each week (sets × reps × weight) — a complement to per-exercise progress above.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <LineTrendChart
+            data={volume.map((v) => ({ date: v.week_start, value: Number(v.volume_kg) }))}
+            unit="kg"
+            decimals={0}
+            emptyMessages={{
+              none: 'Log weighted sets to start your volume trend.',
+              some: 'Log a few more weeks to see your volume trend.',
+            }}
+          />
         </CardContent>
       </Card>
     </AppLayout>

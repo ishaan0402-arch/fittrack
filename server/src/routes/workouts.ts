@@ -72,6 +72,34 @@ workoutsRouter.get("/summary", asyncHandler(async (req, res) => {
   res.json(result.rows);
 }));
 
+// Weekly training volume (sets × reps × weight, summed across all exercises)
+// — the Workouts page's volume trend chart, a complement to per-exercise
+// progressive-overload suggestions. Zero-filled for weeks with nothing
+// logged. Registered before "/:date" for the same reason as "/summary" above.
+workoutsRouter.get("/volume", asyncHandler(async (req, res) => {
+  const weeks = Math.min(Number(req.query.weeks) || 12, 52);
+  const result = await pool.query(
+    `SELECT
+       ws::date::text AS week_start,
+       COALESCE((
+         SELECT SUM(e.sets * e.reps * e.weight_kg)
+         FROM workouts w
+         JOIN workout_exercises e ON e.workout_id = w.id
+         WHERE w.user_id = $1
+           AND date_trunc('week', w.date) = ws
+           AND e.sets IS NOT NULL AND e.reps IS NOT NULL AND e.weight_kg IS NOT NULL
+       ), 0) AS volume_kg
+     FROM generate_series(
+       date_trunc('week', CURRENT_DATE - ($2::int - 1) * interval '7 days'),
+       date_trunc('week', CURRENT_DATE),
+       interval '7 days'
+     ) AS ws
+     ORDER BY ws`,
+    [req.userId, weeks]
+  );
+  res.json(result.rows);
+}));
+
 workoutsRouter.get("/:date", asyncHandler(async (req, res) => {
   if (!DATE_RE.test(req.params.date)) {
     res.status(400).json({ error: "date must be YYYY-MM-DD" });

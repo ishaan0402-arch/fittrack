@@ -10,6 +10,8 @@ export interface Food {
   restaurant_name?: string | null;
   /** Only present on RecentFood results — the quantity logged last time, used to default one-tap re-logging. */
   last_quantity_grams?: string | null;
+  /** Only populated by endpoints with per-user auth context (recent/custom/favorites) — undefined elsewhere, e.g. search. */
+  is_favorite?: boolean;
 }
 
 export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
@@ -371,10 +373,49 @@ export async function getFoodByBarcode(code: string): Promise<Food | null> {
   return res.json();
 }
 
+// A single-product read off a Nutrition Facts label — distinct from
+// NutritionEstimateItem (which estimates a plate of food), since a label
+// scan reports exact printed values for one product's serving size.
+export interface LabelScanResult {
+  labelFound: boolean;
+  productName: string;
+  servingSizeDescription: string;
+  servingSizeGrams: number;
+  caloriesPerServing: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  note: string;
+}
+
+export async function scanNutritionLabel(file: File): Promise<LabelScanResult> {
+  const formData = new FormData();
+  formData.append('photo', file);
+  const res = await fetch('/api/label-scan/scan', { method: 'POST', body: formData });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Reading the nutrition label failed'));
+  return res.json();
+}
+
 export async function getCustomFoods(): Promise<Food[]> {
   const res = await fetch('/api/foods/custom');
   if (!res.ok) throw new Error('Failed to load your custom foods');
   return res.json();
+}
+
+export async function getFavoriteFoods(): Promise<Food[]> {
+  const res = await fetch('/api/foods/favorites');
+  if (!res.ok) throw new Error('Failed to load your favorite foods');
+  return res.json();
+}
+
+export async function addFavoriteFood(id: number): Promise<void> {
+  const res = await fetch(`/api/foods/${id}/favorite`, { method: 'POST' });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Adding favorite failed'));
+}
+
+export async function removeFavoriteFood(id: number): Promise<void> {
+  const res = await fetch(`/api/foods/${id}/favorite`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Removing favorite failed'));
 }
 
 export async function createCustomFood(input: {
@@ -391,6 +432,36 @@ export async function createCustomFood(input: {
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await errorMessage(res, 'Creating the food failed'));
+  return res.json();
+}
+
+// Shared shape returned by both AI estimation routes (photo and text) — same
+// output either way, only the input differs.
+export interface NutritionEstimateItem {
+  description: string;
+  estimatedQuantityGrams: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  note: string;
+}
+
+export async function estimatePhotoNutrition(file: File): Promise<{ items: NutritionEstimateItem[] }> {
+  const formData = new FormData();
+  formData.append('photo', file);
+  const res = await fetch('/api/photo-log/estimate', { method: 'POST', body: formData });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Estimating nutrition from the photo failed'));
+  return res.json();
+}
+
+export async function estimateTextNutrition(description: string): Promise<{ items: NutritionEstimateItem[] }> {
+  const res = await fetch('/api/text-log/estimate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Estimating nutrition from the description failed'));
   return res.json();
 }
 
@@ -545,6 +616,17 @@ export interface ExerciseHistoryEntry {
 export async function getExerciseHistory(): Promise<ExerciseHistoryEntry[]> {
   const res = await fetch('/api/workouts/exercise-history');
   if (!res.ok) throw new Error('Failed to load exercise history');
+  return res.json();
+}
+
+export interface WeeklyVolume {
+  week_start: string;
+  volume_kg: string;
+}
+
+export async function getWorkoutVolume(weeks = 12): Promise<WeeklyVolume[]> {
+  const res = await fetch(`/api/workouts/volume?weeks=${weeks}`);
+  if (!res.ok) throw new Error('Failed to load workout volume');
   return res.json();
 }
 

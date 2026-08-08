@@ -15,11 +15,13 @@ foodsRouter.get("/recent", requireAuth, asyncHandler(async (req, res) => {
        f.id, f.fdc_id, f.description, f.calories_per_100g, f.serving_size_grams, f.restaurant_name,
        MAX(l.logged_at) AS last_logged_at,
        COUNT(*) AS times_logged,
-       (ARRAY_AGG(l.quantity_grams ORDER BY l.logged_at DESC))[1] AS last_quantity_grams
+       (ARRAY_AGG(l.quantity_grams ORDER BY l.logged_at DESC))[1] AS last_quantity_grams,
+       (ff.food_id IS NOT NULL) AS is_favorite
      FROM food_logs l
      JOIN foods f ON f.id = l.food_id
+     LEFT JOIN favorite_foods ff ON ff.food_id = f.id AND ff.user_id = $1
      WHERE l.user_id = $1
-     GROUP BY f.id, f.fdc_id, f.description, f.calories_per_100g, f.serving_size_grams, f.restaurant_name
+     GROUP BY f.id, f.fdc_id, f.description, f.calories_per_100g, f.serving_size_grams, f.restaurant_name, ff.food_id
      ORDER BY last_logged_at DESC
      LIMIT 20`,
     [req.userId]
@@ -33,14 +35,44 @@ foodsRouter.get("/recent", requireAuth, asyncHandler(async (req, res) => {
 // Foods page, and Meal builder just like any other food.
 foodsRouter.get("/custom", requireAuth, asyncHandler(async (req, res) => {
   const result = await pool.query(
-    `SELECT id, description, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, serving_size_grams
-     FROM foods
-     WHERE created_by_user_id = $1
-     ORDER BY created_at DESC`,
+    `SELECT f.id, f.description, f.calories_per_100g, f.protein_per_100g, f.carbs_per_100g, f.fat_per_100g, f.serving_size_grams,
+            (ff.food_id IS NOT NULL) AS is_favorite
+     FROM foods f
+     LEFT JOIN favorite_foods ff ON ff.food_id = f.id AND ff.user_id = $1
+     WHERE f.created_by_user_id = $1
+     ORDER BY f.created_at DESC`,
     [req.userId]
   );
 
   res.json(result.rows);
+}));
+
+// A user's starred foods, newest-starred first.
+foodsRouter.get("/favorites", requireAuth, asyncHandler(async (req, res) => {
+  const result = await pool.query(
+    `SELECT f.id, f.fdc_id, f.description, f.calories_per_100g, f.protein_per_100g, f.carbs_per_100g, f.fat_per_100g,
+            f.serving_size_grams, f.restaurant_name, true AS is_favorite
+     FROM favorite_foods ff
+     JOIN foods f ON f.id = ff.food_id
+     WHERE ff.user_id = $1
+     ORDER BY ff.created_at DESC`,
+    [req.userId]
+  );
+
+  res.json(result.rows);
+}));
+
+foodsRouter.post("/:id/favorite", requireAuth, asyncHandler(async (req, res) => {
+  await pool.query(
+    `INSERT INTO favorite_foods (user_id, food_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [req.userId, req.params.id]
+  );
+  res.status(204).end();
+}));
+
+foodsRouter.delete("/:id/favorite", requireAuth, asyncHandler(async (req, res) => {
+  await pool.query(`DELETE FROM favorite_foods WHERE user_id = $1 AND food_id = $2`, [req.userId, req.params.id]);
+  res.status(204).end();
 }));
 
 foodsRouter.post("/custom", requireAuth, asyncHandler(async (req, res) => {

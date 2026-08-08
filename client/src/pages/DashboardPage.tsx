@@ -151,6 +151,57 @@ function StreakCard({ streak, last7Logged }: { streak: Streak | null; last7Logge
   )
 }
 
+// Always the trailing 7 calendar days, independent of the chart range toggle
+// above it — "how's this week going" shouldn't change when you switch the
+// weight/calorie charts to a 90-day view.
+function ThisWeekCard({
+  calorieData,
+  weightData,
+  calorieTarget,
+}: {
+  calorieData: { date: string; calories: number }[]
+  weightData: { date: string; weightKg: number }[]
+  calorieTarget: number
+}) {
+  const last7 = calorieData.slice(-7)
+  const loggedDays = last7.filter((d) => d.calories > 0)
+  const avgCalories =
+    loggedDays.length > 0
+      ? Math.round(loggedDays.reduce((sum, d) => sum + d.calories, 0) / loggedDays.length)
+      : null
+
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  const weekWeights = weightData.filter((w) => new Date(w.date) >= sevenDaysAgo)
+  const weightDelta =
+    weekWeights.length >= 2 ? weekWeights[weekWeights.length - 1].weightKg - weekWeights[0].weightKg : null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>This week</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 py-2">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="font-hero text-3xl text-card-foreground">{loggedDays.length}/7</p>
+            <p className="label-quiet">days logged</p>
+          </div>
+          <div>
+            <p className="font-hero text-3xl text-card-foreground">{avgCalories ?? '—'}</p>
+            <p className="label-quiet">avg kcal{calorieTarget ? ` / ${calorieTarget}` : ''}</p>
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {weightDelta !== null
+            ? `Weight ${weightDelta > 0 ? '+' : ''}${weightDelta.toFixed(1)}kg this week`
+            : 'Log a couple more weigh-ins to see this week’s weight change'}
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
 function WeightChangeCard({
   data,
   rangeLabel,
@@ -454,6 +505,11 @@ export function DashboardPage() {
 
         <div className="space-y-6">
           <StreakCard streak={streak} last7Logged={last7Logged} />
+          <ThisWeekCard
+            calorieData={calorieData}
+            weightData={weightData}
+            calorieTarget={profile?.calorieTarget ?? 0}
+          />
           <WeightChangeCard data={weightData} rangeLabel={rangeLabel} />
           <WorkoutSummaryCard entries={workoutSummary} onLogged={refreshWorkoutSummary} />
           <CoachCard />

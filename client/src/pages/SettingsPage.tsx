@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { Download } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -271,6 +272,27 @@ export function SettingsPage() {
           ) : (
             <p className="text-sm text-muted-foreground">Loading…</p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Export your data</CardTitle>
+          <CardDescription>Download your data as CSV files you can open in any spreadsheet app.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          <Button asChild variant="outline">
+            <a href="/api/export/food-log.csv" download>
+              <Download />
+              Food log (CSV)
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <a href="/api/export/weight-history.csv" download>
+              <Download />
+              Weight history (CSV)
+            </a>
+          </Button>
         </CardContent>
       </Card>
     </AppLayout>

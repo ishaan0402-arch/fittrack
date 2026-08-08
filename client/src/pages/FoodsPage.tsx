@@ -1,15 +1,23 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Apple, ChefHat, Plus } from 'lucide-react'
+import { Apple, ChefHat, Plus, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { AppLayout } from '@/components/app-layout'
 import { FoodPickerList } from '@/components/food-picker-list'
-import { getRecentFoods, getCustomFoods, createCustomFood, type Food, type RecentFood } from '@/api'
+import {
+  getRecentFoods,
+  getCustomFoods,
+  getFavoriteFoods,
+  createCustomFood,
+  type Food,
+  type RecentFood,
+} from '@/api'
 
 export function FoodsPage() {
   const [recent, setRecent] = useState<RecentFood[]>([])
   const [custom, setCustom] = useState<Food[]>([])
+  const [favorites, setFavorites] = useState<Food[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const [showForm, setShowForm] = useState(false)
@@ -34,10 +42,23 @@ export function FoodsPage() {
       .catch((e) => setError((e as Error).message))
   }
 
-  useEffect(() => {
+  const refreshFavorites = () => {
+    getFavoriteFoods()
+      .then(setFavorites)
+      .catch((e) => setError((e as Error).message))
+  }
+
+  // A favorite toggled from any of the three lists below should be reflected
+  // in all three (e.g. starring a Recent food should also populate Favorites,
+  // and un-starring a Favorite should update its is_favorite flag if it's
+  // also shown under Recent or Custom).
+  const refreshAll = () => {
     refreshRecent()
     refreshCustom()
-  }, [])
+    refreshFavorites()
+  }
+
+  useEffect(refreshAll, [])
 
   const resetForm = () => {
     setDescription('')
@@ -204,7 +225,25 @@ export function FoodsPage() {
               const calories = Math.round((Number(food.calories_per_100g) * servingSize) / 100)
               return `${calories} kcal / ${servingSize}g serving`
             }}
-            onLogged={refreshRecent}
+            onLogged={refreshAll}
+            onFavoriteToggled={refreshAll}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Favorites</CardTitle>
+          <CardDescription>Foods you've starred — tap the star on any food to add or remove one.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FoodPickerList
+            foods={favorites}
+            emptyMessage="Star a food below (or in the Diary) to pin it here."
+            emptyIcon={Star}
+            meta={(food) => `${Math.round(Number(food.calories_per_100g))} kcal / 100g`}
+            onLogged={refreshAll}
+            onFavoriteToggled={refreshAll}
           />
         </CardContent>
       </Card>
@@ -224,7 +263,8 @@ export function FoodsPage() {
               const times = Number(r.times_logged)
               return `${Math.round(Number(food.calories_per_100g))} kcal / 100g · logged ${times}×`
             }}
-            onLogged={refreshRecent}
+            onLogged={refreshAll}
+            onFavoriteToggled={refreshAll}
           />
         </CardContent>
       </Card>

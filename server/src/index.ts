@@ -17,6 +17,10 @@ import { restaurantsRouter } from "./routes/restaurants.js";
 import { waterRouter } from "./routes/water.js";
 import { measurementsRouter } from "./routes/measurements.js";
 import { recipesRouter } from "./routes/recipes.js";
+import { photoLogRouter } from "./routes/photoLog.js";
+import { textLogRouter } from "./routes/textLog.js";
+import { labelScanRouter } from "./routes/labelScan.js";
+import { exportRouter } from "./routes/export.js";
 
 const app = express();
 app.use(cors());
@@ -42,6 +46,10 @@ app.use("/api/restaurants", restaurantsRouter);
 app.use("/api/water", waterRouter);
 app.use("/api/measurements", measurementsRouter);
 app.use("/api/recipes", recipesRouter);
+app.use("/api/photo-log", photoLogRouter);
+app.use("/api/text-log", textLogRouter);
+app.use("/api/label-scan", labelScanRouter);
+app.use("/api/export", exportRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

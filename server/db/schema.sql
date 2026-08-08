@@ -80,6 +80,15 @@ CREATE TABLE IF NOT EXISTS foods (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- A user's starred foods, for instant re-logging of staples. Per-user (not a
+-- flag on foods itself) since foods rows are shared/cached across users.
+CREATE TABLE IF NOT EXISTS favorite_foods (
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  food_id INTEGER NOT NULL REFERENCES foods(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, food_id)
+);
+
 -- Entries a user has logged as eaten. meal_type groups the Diary into
 -- Breakfast/Lunch/Dinner/Snack sections instead of one flat list — the
 -- route defaults it from the time of day when the client doesn't specify one.
