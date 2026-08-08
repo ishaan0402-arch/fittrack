@@ -4,7 +4,16 @@ import { pool } from "../db.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { anthropic } from "../anthropic.js";
-import { estimateExpenditure, type ActivityLevel, type Gender } from "../expenditure.js";
+import { localDateString } from "../dateUtils.js";
+import {
+  estimateExpenditure,
+  calorieTargetForGoal,
+  macroTargetsForGoal,
+  GOAL_LABELS,
+  type ActivityLevel,
+  type Gender,
+  type Goal,
+} from "../expenditure.js";
 
 export const coachRouter = Router();
 coachRouter.use(requireAuth);
@@ -14,7 +23,7 @@ const HISTORY_LIMIT = 20;
 
 async function buildContext(userId: number): Promise<string> {
   const profileResult = await pool.query(
-    "SELECT height_cm, weight_kg, gender, age, activity_level FROM user_profiles WHERE user_id = $1",
+    "SELECT height_cm, weight_kg, gender, age, activity_level, goal FROM user_profiles WHERE user_id = $1",
     [userId]
   );
 
@@ -25,6 +34,7 @@ async function buildContext(userId: number): Promise<string> {
     const p = profileResult.rows[0];
     const heightCm = Number(p.height_cm);
     const weightKg = Number(p.weight_kg);
+    const goal = p.goal as Goal;
     expenditure = estimateExpenditure({
       heightCm,
       weightKg,
@@ -32,10 +42,13 @@ async function buildContext(userId: number): Promise<string> {
       gender: p.gender as Gender,
       activityLevel: p.activity_level as ActivityLevel,
     });
-    profileContext = `User profile: ${p.gender}, age ${p.age}, height ${heightCm}cm, weight ${weightKg}kg, activity level "${p.activity_level}". Estimated daily maintenance calories (TDEE, Mifflin-St Jeor): ${expenditure} kcal.`;
+    const calorieTarget = calorieTargetForGoal(expenditure, goal);
+    const macros = macroTargetsForGoal(weightKg, goal, calorieTarget);
+    profileContext = `User profile: ${p.gender}, age ${p.age}, height ${heightCm}cm, weight ${weightKg}kg, activity level "${p.activity_level}". Goal: ${GOAL_LABELS[goal]}. Estimated maintenance calories (TDEE, Mifflin-St Jeor): ${expenditure} kcal. Goal-adjusted daily target: ${calorieTarget} kcal, with ${macros.protein}g protein / ${macros.carbs}g carbs / ${macros.fat}g fat. Tailor advice to this goal (e.g. emphasize a calorie surplus and progressive overload for bulk/bodybuilding/powerlifting, a deficit with high protein for cut, strength/technique cues for powerlifting).`;
+    expenditure = calorieTarget;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateString();
   const logResult = await pool.query(
     `SELECT f.description, l.quantity_grams, ROUND(f.calories_per_100g * l.quantity_grams / 100, 1) AS calories
      FROM food_logs l

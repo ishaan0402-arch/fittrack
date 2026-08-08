@@ -7,13 +7,23 @@ export function RingStat({
   unit,
   color,
   size = 120,
+  displayValue,
+  flat = false,
 }: {
   value: number
   max: number
   label: string
   unit: string
-  color: string
+  color?: string
   size?: number
+  /** Overrides the centered number — e.g. "+105" instead of a plain round(value). */
+  displayValue?: string
+  /**
+   * Renders just the track circle with no progress arc — for a value that
+   * isn't actually progress toward anything (e.g. a fixed target number),
+   * where a filled/animated ring would misleadingly imply otherwise.
+   */
+  flat?: boolean
 }) {
   const stroke = size <= 80 ? 6 : 10
   const radius = (size - stroke) / 2
@@ -33,18 +43,20 @@ export function RingStat({
             fill="none"
             stroke="var(--track)"
           />
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            strokeWidth={stroke}
-            fill="none"
-            stroke={color}
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            style={{ transition: 'stroke-dashoffset 300ms ease' }}
-          />
+          {!flat && (
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              strokeWidth={stroke}
+              fill="none"
+              stroke={color}
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              style={{ transition: 'stroke-dashoffset 300ms ease' }}
+            />
+          )}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span
@@ -53,7 +65,7 @@ export function RingStat({
               size <= 80 ? 'text-sm' : 'text-2xl'
             )}
           >
-            {Math.round(value)}
+            {displayValue ?? Math.round(value)}
           </span>
           {size > 80 && <span className="text-[11px] text-muted-foreground">{unit}</span>}
         </div>
@@ -106,10 +118,7 @@ export function MeterRow({
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-track">
         <div
-          className={cn(
-            'h-full rounded-full transition-[width] duration-300',
-            pct > 100 ? 'bg-destructive' : 'bg-brand'
-          )}
+          className="h-full rounded-full bg-brand transition-[width] duration-300"
           style={{ width: `${barWidth}%` }}
         />
       </div>

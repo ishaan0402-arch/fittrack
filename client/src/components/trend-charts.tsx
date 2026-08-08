@@ -1,4 +1,19 @@
 import { useMemo, useState, type MouseEvent } from 'react'
+import { LineChart } from 'lucide-react'
+
+const MIN_POINTS_FOR_TREND = 3
+
+function EmptyTrendState({ message }: { message: string }) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border text-center"
+      style={{ height: CHART_HEIGHT }}
+    >
+      <LineChart className="text-muted-foreground/50" size={28} />
+      <p className="max-w-56 text-sm text-muted-foreground">{message}</p>
+    </div>
+  )
+}
 
 const CHART_WIDTH = 640
 const CHART_HEIGHT = 220
@@ -49,7 +64,7 @@ export function WeightTrendChart({ data }: { data: { date: string; weightKg: num
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
   const chart = useMemo(() => {
-    if (data.length === 0) return null
+    if (data.length < MIN_POINTS_FOR_TREND) return null
     const times = data.map((d) => new Date(d.date).getTime())
     const weights = data.map((d) => d.weightKg)
     const minT = Math.min(...times)
@@ -69,7 +84,15 @@ export function WeightTrendChart({ data }: { data: { date: string; weightKg: num
   }, [data])
 
   if (!chart) {
-    return <p className="text-sm text-muted-foreground">No weight logged yet.</p>
+    return (
+      <EmptyTrendState
+        message={
+          data.length === 0
+            ? 'Log a weigh-in to start your trend.'
+            : 'Log a few more weigh-ins to see your trend.'
+        }
+      />
+    )
   }
 
   const { points, minW, maxW } = chart
@@ -175,8 +198,17 @@ export function WeightTrendChart({ data }: { data: { date: string; weightKg: num
 export function CaloriesTrendChart({ data }: { data: { date: string; calories: number }[] }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
-  if (data.length === 0) {
-    return <p className="text-sm text-muted-foreground">No data yet.</p>
+  const loggedDays = data.filter((d) => d.calories > 0).length
+  if (loggedDays < MIN_POINTS_FOR_TREND) {
+    return (
+      <EmptyTrendState
+        message={
+          loggedDays === 0
+            ? 'Log some food to start your trend.'
+            : 'Log a few more days to see your calorie trend.'
+        }
+      />
+    )
   }
 
   const maxVal = Math.max(...data.map((d) => d.calories), 1)

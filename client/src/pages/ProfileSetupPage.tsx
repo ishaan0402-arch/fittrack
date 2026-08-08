@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { AuthLayout } from '@/components/auth-layout'
-import { saveProfile, type ActivityLevel } from '@/api'
+import { saveProfile, GOAL_OPTIONS, type ActivityLevel, type Goal } from '@/api'
 import { useAuth } from '@/context/AuthContext'
 
 type HeightUnit = 'cm' | 'ftin'
@@ -22,6 +22,7 @@ export function ProfileSetupPage() {
   const [gender, setGender] = useState<'male' | 'female'>('male')
   const [age, setAge] = useState('25')
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>('sedentary')
+  const [goal, setGoal] = useState<Goal>('maintain')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -45,6 +46,7 @@ export function ProfileSetupPage() {
         gender,
         age: Number(age),
         activityLevel,
+        goal,
       })
       await refresh()
       navigate('/')
@@ -175,6 +177,27 @@ export function ProfileSetupPage() {
             <option value="moderately_active">Moderately active — 3-5 days/week</option>
             <option value="heavily_active">Heavily active — 6-7 days/week</option>
           </select>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-sm text-card-foreground" htmlFor="goal">
+            Goal
+          </label>
+          <select
+            id="goal"
+            value={goal}
+            onChange={(e) => setGoal(e.target.value as Goal)}
+            className={`${selectClass} w-full`}
+          >
+            {GOAL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            We'll adjust your calorie and macro targets to match.
+          </p>
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}

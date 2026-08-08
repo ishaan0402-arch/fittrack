@@ -4,42 +4,63 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.75rem;
+  --radius: 0.625rem;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  /* Condensed, heavy-weight display face used ONLY for hero numbers
+     (calories, macros, weight, streaks) — the whole point of this redesign
+     is that data is the visual hero, not chrome around it. Never use this
+     for body text or labels. */
+  --font-display: "Oswald", ui-sans-serif, system-ui, sans-serif;
 
-  /* Page sits on a soft warm neutral; cards are the dark-navy surfaces. */
-  --background: oklch(0.975 0.006 80);
-  --foreground: oklch(0.24 0.03 262);
+  /* Deep ink/charcoal base — deliberately not stark black, not the generic
+     cream-and-white SaaS-dashboard look this app used to have. */
+  --background: oklch(0.16 0.014 264);
+  --foreground: oklch(0.94 0.006 264);
 
-  --card: oklch(0.225 0.045 264);
-  --card-foreground: oklch(0.96 0.006 250);
+  --card: oklch(0.21 0.014 264);
+  --card-foreground: oklch(0.94 0.006 264);
 
-  --primary: oklch(0.96 0.006 250);
-  --primary-foreground: oklch(0.225 0.045 264);
-  --secondary: oklch(0.32 0.04 264);
-  --secondary-foreground: oklch(0.96 0.006 250);
+  --primary: oklch(0.94 0.006 264);
+  --primary-foreground: oklch(0.16 0.014 264);
+  --secondary: oklch(0.28 0.014 264);
+  --secondary-foreground: oklch(0.94 0.006 264);
 
-  /* Muted text/track tokens are tuned for the dark card surface, since
-     every card in this app is dark navy. */
-  --muted: oklch(0.32 0.04 264);
-  --muted-foreground: oklch(0.72 0.03 250);
-  --accent: oklch(0.32 0.04 264);
-  --accent-foreground: oklch(0.96 0.006 250);
+  --muted: oklch(0.25 0.014 264);
+  --muted-foreground: oklch(0.66 0.014 264);
+  --accent: oklch(0.27 0.03 42);
+  --accent-foreground: oklch(0.94 0.006 264);
 
-  --destructive: oklch(0.65 0.2 25);
-  --border: oklch(0.4 0.045 264 / 55%);
-  --input: oklch(0.4 0.045 264 / 55%);
-  --ring: oklch(0.6 0.08 260);
+  --destructive: oklch(0.63 0.22 21);
+  --border: oklch(0.29 0.014 264);
+  --input: oklch(0.32 0.014 264);
+  --ring: oklch(0.7 0.19 42);
 
-  --brand: oklch(0.62 0.16 258);
-  --brand-foreground: oklch(0.98 0.008 258);
+  /* The one bold, unexpected accent — burnt-orange/persimmon. An
+     appetite/energy color on purpose, deliberately not teal/blue/green
+     (every fitness tracker reaches for those). This is the only saturated
+     hue in the whole palette — everything else is charcoal/neutral so this
+     always reads as "the important thing." */
+  --brand: oklch(0.7 0.19 42);
+  --brand-foreground: oklch(0.16 0.02 42);
 
-  --track: oklch(0.34 0.035 264);
-  --ring-consumed: oklch(0.68 0.15 250);
-  --ring-expenditure: oklch(0.68 0.16 310);
-  --ring-remaining: oklch(0.7 0.13 190);
+  --track: oklch(0.34 0.014 264);
+  --ring-consumed: oklch(0.7 0.19 42);
+  --ring-expenditure: oklch(0.55 0.014 264);
+  --ring-remaining: oklch(0.7 0.19 42);
+
+  /* Sidebar sits one step darker than the page — a subtle depth cue rather
+     than the old split-personality "dark nav bolted onto a light app." */
+  --sidebar: oklch(0.13 0.014 264);
+  --sidebar-foreground: oklch(0.93 0.006 264);
+  --sidebar-muted: oklch(0.58 0.012 264);
+  --sidebar-border: oklch(0.22 0.014 264);
+  --sidebar-active: var(--brand);
+  --sidebar-active-foreground: var(--brand-foreground);
 }
 
 @theme inline {
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -63,6 +84,12 @@
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
   --color-track: var(--track);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-active-foreground: var(--sidebar-active-foreground);
 }
 
 @layer base {
@@ -71,5 +98,28 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+}
+
+@layer utilities {
+  /* The hero-number treatment: large, bold, condensed, tabular figures so
+     digits don't jitter in width as they change. Applied to every "this is
+     the number that matters" spot — calories consumed, macros, weight,
+     streak count. */
+  .font-hero {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    line-height: 1;
+  }
+
+  .label-quiet {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
   }
 }

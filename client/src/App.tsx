@@ -9,6 +9,12 @@ import { ProfileSetupPage } from '@/pages/ProfileSetupPage'
 import { DiaryPage } from '@/pages/DiaryPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { CoachPage } from '@/pages/CoachPage'
+import { FoodsPage } from '@/pages/FoodsPage'
+import { MealsPage } from '@/pages/MealsPage'
+import { ScanPage } from '@/pages/ScanPage'
+import { WorkoutsPage } from '@/pages/WorkoutsPage'
+import { ProgressPage } from '@/pages/ProgressPage'
+import { SettingsPage } from '@/pages/SettingsPage'
 
 function LoadingScreen() {
   return (
@@ -97,6 +103,54 @@ function App() {
         element={
           <RequireProfile>
             <CoachPage />
+          </RequireProfile>
+        }
+      />
+      <Route
+        path="/foods"
+        element={
+          <RequireProfile>
+            <FoodsPage />
+          </RequireProfile>
+        }
+      />
+      <Route
+        path="/meals"
+        element={
+          <RequireProfile>
+            <MealsPage />
+          </RequireProfile>
+        }
+      />
+      <Route
+        path="/scan"
+        element={
+          <RequireProfile>
+            <ScanPage />
+          </RequireProfile>
+        }
+      />
+      <Route
+        path="/workouts"
+        element={
+          <RequireProfile>
+            <WorkoutsPage />
+          </RequireProfile>
+        }
+      />
+      <Route
+        path="/progress"
+        element={
+          <RequireProfile>
+            <ProgressPage />
+          </RequireProfile>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <RequireProfile>
+            <SettingsPage />
           </RequireProfile>
         }
       />

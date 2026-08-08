@@ -2,7 +2,9 @@ import { useId } from 'react'
 import { cn } from '@/lib/utils'
 
 // The mark echoes the app's own calorie ring (RingStat) — a swept progress
-// ring with a center dot — so the brand identity ties directly to the product.
+// ring with a center dot — so the brand identity ties directly to the
+// product. Single-hue amber-to-persimmon gradient, matching the app's one
+// bold accent color rather than introducing a second brand hue.
 export function Logo({ size = 40, className }: { size?: number; className?: string }) {
   const gradientId = useId()
   const radius = 12
@@ -19,12 +21,12 @@ export function Logo({ size = 40, className }: { size?: number; className?: stri
     >
       <defs>
         <linearGradient id={gradientId} x1="4" y1="4" x2="36" y2="36" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#5b9dff" />
-          <stop offset="100%" stopColor="#2dd9c4" />
+          <stop offset="0%" stopColor="oklch(0.78 0.16 55)" />
+          <stop offset="100%" stopColor="oklch(0.66 0.2 34)" />
         </linearGradient>
       </defs>
-      <rect width="40" height="40" rx="11" fill="#0e1a30" />
-      <circle cx="20" cy="20" r={radius} fill="none" stroke="#26375c" strokeWidth="4" />
+      <rect width="40" height="40" rx="10" fill="var(--card)" />
+      <circle cx="20" cy="20" r={radius} fill="none" stroke="var(--border)" strokeWidth="4" />
       <circle
         cx="20"
         cy="20"

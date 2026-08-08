@@ -3,13 +3,18 @@ import { pool } from "../db.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { fetchUsdaFoodDetail } from "../usda.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { localDateString, defaultMealType, type MealType } from "../dateUtils.js";
+
+const MEAL_TYPES: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
 
 export const logsRouter = Router();
 logsRouter.use(requireAuth);
 
 // Nutrient detail is fetched from USDA lazily, the first time a food is
 // actually logged (not at search time) — most search results never get added.
-async function ensureNutrientsCached(foodId: number, fdcId: number) {
+export async function ensureNutrientsCached(foodId: number, fdcId: number | null) {
+  if (fdcId == null) return; // custom foods have no USDA detail to fetch
+
   const existing = await pool.query("SELECT 1 FROM food_nutrients WHERE food_id = $1 LIMIT 1", [
     foodId,
   ]);
@@ -44,14 +49,19 @@ async function ensureNutrientsCached(foodId: number, fdcId: number) {
 }
 
 logsRouter.post("/", asyncHandler(async (req, res) => {
-  const { foodId, quantityGrams, note } = req.body as {
+  const { foodId, quantityGrams, note, mealType } = req.body as {
     foodId?: number;
     quantityGrams?: number;
     note?: string;
+    mealType?: string;
   };
 
   if (!foodId || !quantityGrams || quantityGrams <= 0) {
     res.status(400).json({ error: "foodId and a positive quantityGrams are required" });
+    return;
+  }
+  if (mealType && !MEAL_TYPES.includes(mealType as MealType)) {
+    res.status(400).json({ error: `mealType must be one of ${MEAL_TYPES.join(", ")}` });
     return;
   }
 
@@ -64,10 +74,10 @@ logsRouter.post("/", asyncHandler(async (req, res) => {
   await ensureNutrientsCached(foodId, food.rows[0].fdc_id);
 
   const result = await pool.query(
-    `INSERT INTO food_logs (user_id, food_id, quantity_grams, note)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, food_id, quantity_grams, note, logged_at`,
-    [req.userId, foodId, quantityGrams, note?.trim() || null]
+    `INSERT INTO food_logs (user_id, food_id, quantity_grams, note, meal_type)
+     VALUES ($1, $2, $3, $4, $5)
+     RETURNING id, food_id, quantity_grams, note, meal_type, logged_at`,
+    [req.userId, foodId, quantityGrams, note?.trim() || null, mealType ?? defaultMealType()]
   );
 
   res.status(201).json(result.rows[0]);
@@ -86,13 +96,14 @@ logsRouter.delete("/:id", asyncHandler(async (req, res) => {
 }));
 
 logsRouter.get("/", asyncHandler(async (req, res) => {
-  const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
+  const date = String(req.query.date ?? localDateString());
 
   const entriesResult = await pool.query(
     `SELECT
        l.id,
        l.quantity_grams,
        l.note,
+       l.meal_type,
        l.logged_at,
        f.id AS food_id,
        f.description,
@@ -145,7 +156,7 @@ logsRouter.get("/history", asyncHandler(async (req, res) => {
 
   const result = await pool.query(
     `SELECT
-       d::date AS date,
+       d::date::text AS date,
        COALESCE(ROUND(SUM(f.calories_per_100g * l.quantity_grams / 100), 1), 0) AS calories
      FROM generate_series(CURRENT_DATE - ($1::int - 1), CURRENT_DATE, interval '1 day') AS d
      LEFT JOIN food_logs l ON l.user_id = $2 AND l.logged_at::date = d::date
@@ -162,7 +173,7 @@ logsRouter.get("/history", asyncHandler(async (req, res) => {
 // yesterday) with at least one food logged.
 logsRouter.get("/streak", asyncHandler(async (req, res) => {
   const result = await pool.query(
-    `SELECT DISTINCT logged_at::date AS day
+    `SELECT DISTINCT logged_at::date::text AS day
      FROM food_logs
      WHERE user_id = $1
      ORDER BY day DESC
@@ -170,21 +181,21 @@ logsRouter.get("/streak", asyncHandler(async (req, res) => {
     [req.userId]
   );
 
-  const days: string[] = result.rows.map((r) => r.day.toISOString().slice(0, 10));
-  const toDateOnly = (d: Date) => new Date(d.toISOString().slice(0, 10));
+  const days: string[] = result.rows.map((r) => r.day);
 
   let streak = 0;
+  let longestStreak = 0;
   if (days.length > 0) {
-    const today = toDateOnly(new Date());
-    const mostRecent = toDateOnly(new Date(days[0]));
+    const today = new Date(localDateString());
+    const mostRecent = new Date(days[0]);
     const dayGap = Math.round((today.getTime() - mostRecent.getTime()) / 86_400_000);
 
     // Streak is only "current" if the most recent logged day is today or yesterday.
     if (dayGap <= 1) {
       streak = 1;
       for (let i = 1; i < days.length; i++) {
-        const prev = toDateOnly(new Date(days[i - 1]));
-        const cur = toDateOnly(new Date(days[i]));
+        const prev = new Date(days[i - 1]);
+        const cur = new Date(days[i]);
         const gap = Math.round((prev.getTime() - cur.getTime()) / 86_400_000);
         if (gap === 1) {
           streak++;
@@ -193,7 +204,19 @@ logsRouter.get("/streak", asyncHandler(async (req, res) => {
         }
       }
     }
+
+    // Longest streak ever, over the same (up to 400-day) window — a bit of
+    // positive reinforcement even on days the current streak has reset.
+    let running = 1;
+    longestStreak = 1;
+    for (let i = 1; i < days.length; i++) {
+      const prev = new Date(days[i - 1]);
+      const cur = new Date(days[i]);
+      const gap = Math.round((prev.getTime() - cur.getTime()) / 86_400_000);
+      running = gap === 1 ? running + 1 : 1;
+      longestStreak = Math.max(longestStreak, running);
+    }
   }
 
-  res.json({ streak });
+  res.json({ streak, longestStreak });
 }));
