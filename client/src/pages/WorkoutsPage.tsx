@@ -99,6 +99,11 @@ export function WorkoutsPage() {
     }
   }, [selectedDate, workouts])
 
+  const exerciseNames = useMemo(
+    () => Object.values(exerciseHistory).map((h) => h.name),
+    [exerciseHistory]
+  )
+
   const cells = useMemo(() => {
     const firstWeekday = new Date(cursor.year, cursor.month - 1, 1).getDay()
     const daysInMonth = new Date(cursor.year, cursor.month, 0).getDate()
@@ -276,6 +281,11 @@ export function WorkoutsPage() {
 
               <div className="space-y-2">
                 <p className="text-xs font-medium text-card-foreground">Exercises</p>
+                <datalist id="exercise-names">
+                  {exerciseNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
                 {form.exercises.map((ex, index) => {
                   const history = exerciseHistory[ex.name.trim().toLowerCase()]
                   const showSuggestion = history && ex.weightKg == null && history.date !== selectedDate
@@ -289,6 +299,7 @@ export function WorkoutsPage() {
                           onChange={(e) => updateExercise(index, { name: e.target.value })}
                           placeholder="Exercise, e.g. Bench press"
                           className="min-w-40 flex-1"
+                          list="exercise-names"
                         />
                         <Input
                           type="number"

@@ -6,17 +6,20 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { EmptyState } from '@/components/empty-state'
+import { LineTrendChart } from '@/components/trend-charts'
 import {
   getProgressPhotos,
   uploadProgressPhoto,
   deleteProgressPhoto,
   progressPhotoImageUrl,
   getLatestMeasurements,
+  getMeasurementHistory,
   logMeasurement,
   deleteMeasurement,
   MEASUREMENT_TYPE_LABELS,
   type ProgressPhoto,
   type LatestMeasurement,
+  type Measurement,
   type MeasurementType,
 } from '@/api'
 
@@ -36,6 +39,9 @@ export function ProgressPage() {
   const [measureType, setMeasureType] = useState<MeasurementType>('waist')
   const [measureValue, setMeasureValue] = useState('')
   const [savingMeasurement, setSavingMeasurement] = useState(false)
+
+  const [trendType, setTrendType] = useState<MeasurementType | null>(null)
+  const [trendHistory, setTrendHistory] = useState<Measurement[]>([])
 
   useEffect(() => {
     if (!file) {
@@ -57,11 +63,26 @@ export function ProgressPage() {
 
   const refreshMeasurements = () => {
     getLatestMeasurements()
-      .then(setMeasurements)
+      .then((rows) => {
+        setMeasurements(rows)
+        // Default to the first available measurement so the trend chart
+        // has something to show without requiring an extra click.
+        setTrendType((current) => current ?? rows[0]?.type ?? null)
+      })
       .catch((e) => setError((e as Error).message))
   }
 
   useEffect(refreshMeasurements, [])
+
+  useEffect(() => {
+    if (!trendType) {
+      setTrendHistory([])
+      return
+    }
+    getMeasurementHistory(trendType)
+      .then(setTrendHistory)
+      .catch((e) => setError((e as Error).message))
+  }, [trendType, measurements])
 
   const handleLogMeasurement = async (e: FormEvent) => {
     e.preventDefault()
@@ -223,25 +244,59 @@ export function ProgressPage() {
           {measurements.length === 0 ? (
             <p className="text-sm text-muted-foreground">No measurements logged yet.</p>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-              {measurements.map((m) => (
-                <div key={m.type} className="group relative rounded-md border p-3">
-                  <p className="label-quiet">{MEASUREMENT_TYPE_LABELS[m.type]}</p>
-                  <p className="font-hero mt-1 text-2xl text-card-foreground">
-                    {Number(m.value_cm)}
-                    <span className="ml-1 text-xs text-muted-foreground">cm</span>
-                  </p>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${MEASUREMENT_TYPE_LABELS[m.type]} measurement`}
-                    onClick={() => handleDeleteMeasurement(m.type)}
-                    className="absolute right-1.5 top-1.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                {measurements.map((m) => (
+                  <div
+                    key={m.type}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setTrendType(m.type)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setTrendType(m.type)
+                      }
+                    }}
+                    className={cn(
+                      'group relative cursor-pointer rounded-md border p-3 transition-colors',
+                      trendType === m.type ? 'border-brand bg-accent' : 'hover:bg-accent/40'
+                    )}
                   >
-                    <Trash2 size={14} />
-                  </button>
+                    <p className="label-quiet">{MEASUREMENT_TYPE_LABELS[m.type]}</p>
+                    <p className="font-hero mt-1 text-2xl text-card-foreground">
+                      {Number(m.value_cm)}
+                      <span className="ml-1 text-xs text-muted-foreground">cm</span>
+                    </p>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${MEASUREMENT_TYPE_LABELS[m.type]} measurement`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteMeasurement(m.type)
+                      }}
+                      className="absolute right-1.5 top-1.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {trendType && (
+                <div>
+                  <p className="label-quiet mb-2">{MEASUREMENT_TYPE_LABELS[trendType]} trend</p>
+                  <LineTrendChart
+                    data={trendHistory.map((m) => ({ date: m.logged_at, value: Number(m.value_cm) }))}
+                    unit="cm"
+                    emptyMessages={{
+                      none: 'Log this measurement again to start its trend.',
+                      some: 'Log it a few more times to see the trend.',
+                    }}
+                  />
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

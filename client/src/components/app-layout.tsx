@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Menu } from 'lucide-react'
 import { Sidebar } from '@/components/sidebar'
 import { Logo } from '@/components/logo'
+import { VerifyEmailBanner } from '@/components/verify-email-banner'
 import { cn } from '@/lib/utils'
 
 export function AppLayout({
@@ -49,6 +50,8 @@ export function AppLayout({
           <Logo size={24} />
           <span className="text-sm font-semibold tracking-tight text-sidebar-foreground">FitTrack</span>
         </div>
+
+        <VerifyEmailBanner />
 
         <main className="flex flex-1 flex-col">
           <div className={cn('mx-auto flex w-full flex-1 flex-col space-y-8 px-4 py-6 sm:px-6 sm:py-8', maxWidth)}>

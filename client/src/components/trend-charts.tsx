@@ -60,44 +60,50 @@ function GridLines({ ticks, format }: { ticks: number[]; format: (t: number) => 
   )
 }
 
-export function WeightTrendChart({ data }: { data: { date: string; weightKg: number }[] }) {
+// Generic single-series line trend, driven by any {date, value} series — used
+// directly for measurement trends, and wrapped below for weight (which keeps
+// its own {date, weightKg} shape so existing callers need no changes).
+export function LineTrendChart({
+  data,
+  unit,
+  decimals,
+  emptyMessages,
+}: {
+  data: { date: string; value: number }[]
+  unit: string
+  decimals?: number
+  emptyMessages: { none: string; some: string }
+}) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
   const chart = useMemo(() => {
     if (data.length < MIN_POINTS_FOR_TREND) return null
     const times = data.map((d) => new Date(d.date).getTime())
-    const weights = data.map((d) => d.weightKg)
+    const values = data.map((d) => d.value)
     const minT = Math.min(...times)
     const maxT = Math.max(...times)
-    const rawMin = Math.min(...weights)
-    const rawMax = Math.max(...weights)
+    const rawMin = Math.min(...values)
+    const rawMax = Math.max(...values)
     const span = Math.max(rawMax - rawMin, 1)
-    const minW = rawMin - span * 0.2
-    const maxW = rawMax + span * 0.2
+    const minV = rawMin - span * 0.2
+    const maxV = rawMax + span * 0.2
     const points = data.map((d, i) => {
       const x =
         PAD_LEFT + (maxT === minT ? PLOT_WIDTH / 2 : ((times[i] - minT) / (maxT - minT)) * PLOT_WIDTH)
-      const y = PAD_TOP + PLOT_HEIGHT - ((d.weightKg - minW) / (maxW - minW)) * PLOT_HEIGHT
-      return { x, y, date: d.date, weightKg: d.weightKg }
+      const y = PAD_TOP + PLOT_HEIGHT - ((d.value - minV) / (maxV - minV)) * PLOT_HEIGHT
+      return { x, y, date: d.date, value: d.value }
     })
-    return { points, minW, maxW }
+    return { points, minV, maxV }
   }, [data])
 
   if (!chart) {
-    return (
-      <EmptyTrendState
-        message={
-          data.length === 0
-            ? 'Log a weigh-in to start your trend.'
-            : 'Log a few more weigh-ins to see your trend.'
-        }
-      />
-    )
+    return <EmptyTrendState message={data.length === 0 ? emptyMessages.none : emptyMessages.some} />
   }
 
-  const { points, minW, maxW } = chart
+  const { points, minV, maxV } = chart
   const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
   const hovered = hoverIndex !== null ? points[hoverIndex] : null
+  const valueDecimals = decimals ?? (maxV - minV < 5 ? 1 : 0)
 
   const handleMove = (e: MouseEvent<SVGRectElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -121,14 +127,7 @@ export function WeightTrendChart({ data }: { data: { date: string; weightKg: num
         className="w-full"
         onMouseLeave={() => setHoverIndex(null)}
       >
-        <GridLines
-          ticks={[0, 0.5, 1]}
-          format={(t) => {
-            const span = maxW - minW
-            const decimals = span < 5 ? 1 : 0
-            return (minW + span * t).toFixed(decimals)
-          }}
-        />
+        <GridLines ticks={[0, 0.5, 1]} format={(t) => (minV + (maxV - minV) * t).toFixed(valueDecimals)} />
         <path
           d={linePath}
           fill="none"
@@ -187,11 +186,26 @@ export function WeightTrendChart({ data }: { data: { date: string; weightKg: num
             transform: 'translate(-50%, -130%)',
           }}
         >
-          <div className="font-medium text-card-foreground">{hovered.weightKg} kg</div>
+          <div className="font-medium text-card-foreground">
+            {hovered.value} {unit}
+          </div>
           <div className="text-muted-foreground">{formatDate(hovered.date)}</div>
         </div>
       )}
     </div>
+  )
+}
+
+export function WeightTrendChart({ data }: { data: { date: string; weightKg: number }[] }) {
+  return (
+    <LineTrendChart
+      data={data.map((d) => ({ date: d.date, value: d.weightKg }))}
+      unit="kg"
+      emptyMessages={{
+        none: 'Log a weigh-in to start your trend.',
+        some: 'Log a few more weigh-ins to see your trend.',
+      }}
+    />
   )
 }
 

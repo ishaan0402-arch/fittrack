@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { CopyPlus, Search, Trash2 } from 'lucide-react'
+import { CopyPlus, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -14,8 +14,11 @@ import {
   getTodayLog,
   getLogForDate,
   deleteLogEntry,
+  updateLogEntry,
   logFood,
+  createCustomFood,
   getProfile,
+  defaultMealType,
   MEAL_TYPES,
   MEAL_TYPE_LABELS,
   type Food,
@@ -59,6 +62,17 @@ export function DiaryPage() {
   const [nutrients, setNutrients] = useState<NutrientTotal[]>([])
   const [copying, setCopying] = useState(false)
 
+  const [editingEntryId, setEditingEntryId] = useState<number | null>(null)
+  const [editQuantity, setEditQuantity] = useState('')
+  const [editNote, setEditNote] = useState('')
+  const [editMealType, setEditMealType] = useState<MealType>('breakfast')
+
+  const [quickAddOpen, setQuickAddOpen] = useState(false)
+  const [quickCalories, setQuickCalories] = useState('')
+  const [quickDescription, setQuickDescription] = useState('')
+  const [quickMealType, setQuickMealType] = useState<MealType>(defaultMealType())
+  const [quickAdding, setQuickAdding] = useState(false)
+
   const refreshLog = () => {
     getTodayLog()
       .then((log) => {
@@ -98,6 +112,56 @@ export function DiaryPage() {
       refreshLog()
     } catch (e) {
       setError((e as Error).message)
+    }
+  }
+
+  const startEdit = (entry: LogEntry) => {
+    setEditingEntryId(entry.id)
+    setEditQuantity(entry.quantity_grams)
+    setEditNote(entry.note ?? '')
+    setEditMealType(entry.meal_type)
+    setError(null)
+  }
+
+  const cancelEdit = () => setEditingEntryId(null)
+
+  const confirmEdit = async (entry: LogEntry) => {
+    const amount = Number(editQuantity)
+    if (!amount || amount <= 0) return
+    try {
+      await updateLogEntry(entry.id, amount, editNote.trim() || undefined, editMealType)
+      setEditingEntryId(null)
+      refreshLog()
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  // Quick Add creates a fresh one-off custom food per entry (servingSizeGrams
+  // 100, calories = the entered amount) rather than reusing a shared row —
+  // calories_per_100g is read at display time, so reusing one row across
+  // different quick-add amounts would silently corrupt every past entry
+  // pointing at it.
+  const handleQuickAdd = async () => {
+    const amount = Number(quickCalories)
+    if (!amount || amount <= 0) return
+    setQuickAdding(true)
+    setError(null)
+    try {
+      const food = await createCustomFood({
+        description: quickDescription.trim() || 'Quick add',
+        servingSizeGrams: 100,
+        calories: amount,
+      })
+      await logFood(food.id, 100, undefined, quickMealType)
+      setQuickCalories('')
+      setQuickDescription('')
+      setQuickAddOpen(false)
+      refreshLog()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setQuickAdding(false)
     }
   }
 
@@ -200,6 +264,60 @@ export function DiaryPage() {
             </Button>
           </form>
 
+          {!restaurant && (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs text-muted-foreground">or</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+
+              {quickAddOpen ? (
+                <div className="space-y-3 rounded-md bg-accent p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={quickCalories}
+                      onChange={(e) => setQuickCalories(e.target.value)}
+                      placeholder="Calories"
+                      className="w-28"
+                      autoFocus
+                    />
+                    <select
+                      value={quickMealType}
+                      onChange={(e) => setQuickMealType(e.target.value as MealType)}
+                      className="h-9 rounded-md border border-input bg-transparent px-2 text-sm text-card-foreground outline-none"
+                    >
+                      {MEAL_TYPES.map((mt) => (
+                        <option key={mt} value={mt}>
+                          {MEAL_TYPE_LABELS[mt]}
+                        </option>
+                      ))}
+                    </select>
+                    <Button size="sm" onClick={handleQuickAdd} disabled={quickAdding}>
+                      {quickAdding ? 'Adding…' : 'Add'}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setQuickAddOpen(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                  <Input
+                    value={quickDescription}
+                    onChange={(e) => setQuickDescription(e.target.value)}
+                    placeholder="What was it? (optional)"
+                  />
+                </div>
+              ) : (
+                <Button type="button" variant="outline" className="w-full" onClick={() => setQuickAddOpen(true)}>
+                  <Plus />
+                  Quick add calories
+                </Button>
+              )}
+            </>
+          )}
+
           {searched && !searching && results.length === 0 && (
             <p className="text-sm text-muted-foreground">No foods matched.</p>
           )}
@@ -244,26 +362,79 @@ export function DiaryPage() {
                   </div>
                   <ul className="divide-y divide-border rounded-md border">
                     {group.map((entry) => (
-                      <li key={entry.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm text-card-foreground">{entry.description}</p>
-                          {entry.note && (
-                            <p className="truncate text-xs text-muted-foreground">{entry.note}</p>
-                          )}
+                      <li key={entry.id} className="px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-card-foreground">{entry.description}</p>
+                            {entry.note && (
+                              <p className="truncate text-xs text-muted-foreground">{entry.note}</p>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-3">
+                            <span className="text-sm font-medium tabular-nums text-card-foreground">
+                              {entry.calories} kcal
+                            </span>
+                            {editingEntryId === entry.id ? (
+                              <Button size="sm" variant="ghost" onClick={cancelEdit}>
+                                Cancel
+                              </Button>
+                            ) : (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label="Edit entry"
+                                  onClick={() => startEdit(entry)}
+                                >
+                                  <Pencil size={15} />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label="Remove entry"
+                                  onClick={() => handleRemove(entry.id)}
+                                >
+                                  <Trash2 className="text-destructive" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex shrink-0 items-center gap-3">
-                          <span className="text-sm font-medium tabular-nums text-card-foreground">
-                            {entry.calories} kcal
-                          </span>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            aria-label="Remove entry"
-                            onClick={() => handleRemove(entry.id)}
-                          >
-                            <Trash2 className="text-destructive" />
-                          </Button>
-                        </div>
+
+                        {editingEntryId === entry.id && (
+                          <div className="mt-3 space-y-3 rounded-md bg-accent p-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={editQuantity}
+                                onChange={(e) => setEditQuantity(e.target.value)}
+                                className="w-24"
+                              />
+                              <span className="text-xs text-muted-foreground">grams</span>
+                              <select
+                                value={editMealType}
+                                onChange={(e) => setEditMealType(e.target.value as MealType)}
+                                className="h-9 rounded-md border border-input bg-transparent px-2 text-sm text-card-foreground outline-none"
+                              >
+                                {MEAL_TYPES.map((mt) => (
+                                  <option key={mt} value={mt}>
+                                    {MEAL_TYPE_LABELS[mt]}
+                                  </option>
+                                ))}
+                              </select>
+                              <Button size="sm" onClick={() => confirmEdit(entry)}>
+                                Save
+                              </Button>
+                            </div>
+                            <Input
+                              value={editNote}
+                              onChange={(e) => setEditNote(e.target.value)}
+                              placeholder="Add a note (optional)"
+                            />
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>

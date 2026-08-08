@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { AuthLayout } from '@/components/auth-layout'
+import { GoogleSignInButton, googleSignInConfigured } from '@/components/google-sign-in-button'
 import { signup } from '@/api'
 import { useAuth } from '@/context/AuthContext'
 
@@ -36,6 +37,22 @@ export function SignupPage() {
 
   return (
     <AuthLayout title="Create your account" description="Start tracking with FitTrack">
+      {googleSignInConfigured && (
+        <>
+          <GoogleSignInButton
+            onSuccess={async () => {
+              await refresh()
+              navigate('/')
+            }}
+            onError={setError}
+          />
+          <div className="my-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">or use email</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+        </>
+      )}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1.5">
           <label className="text-sm text-card-foreground" htmlFor="email">

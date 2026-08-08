@@ -4,6 +4,7 @@ import { pool } from "../db.js";
 import { asyncHandler } from "../asyncHandler.js";
 import { AUTH_COOKIE, hashPassword, verifyPassword, signAuthToken } from "../auth.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { verifyGoogleIdToken, googleSignInConfigured } from "../googleAuth.js";
 
 export const authRouter = Router();
 
@@ -15,6 +16,25 @@ const COOKIE_OPTIONS = {
 
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+// Shared by signup and "resend verification" — same shape as the password
+// reset token flow, and for the same reason: no email provider is
+// configured yet, so the link is logged and handed back in the response
+// instead of actually emailed.
+async function createEmailVerificationLink(userId: number, email: string): Promise<string> {
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+  await pool.query(
+    "INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
+    [userId, tokenHash, expiresAt]
+  );
+
+  const link = `http://localhost:5173/verify-email?token=${token}`;
+  console.log(`[email verification] ${email} -> ${link}`);
+  return link;
 }
 
 authRouter.post("/signup", asyncHandler(async (req, res) => {
@@ -42,8 +62,10 @@ authRouter.post("/signup", asyncHandler(async (req, res) => {
   );
   const user = result.rows[0];
 
+  const devVerificationLink = await createEmailVerificationLink(user.id, user.email);
+
   res.cookie(AUTH_COOKIE, signAuthToken(user.id), COOKIE_OPTIONS);
-  res.status(201).json({ id: user.id, email: user.email });
+  res.status(201).json({ id: user.id, email: user.email, devVerificationLink });
 }));
 
 authRouter.post("/login", asyncHandler(async (req, res) => {
@@ -58,11 +80,66 @@ authRouter.post("/login", asyncHandler(async (req, res) => {
     [email]
   );
   const user = result.rows[0];
-  const valid = user ? await verifyPassword(password, user.password_hash) : false;
+  // password_hash is null for Google-only accounts — bcrypt.compare would
+  // throw on a null hash, so this must short-circuit before calling it.
+  const valid = user?.password_hash ? await verifyPassword(password, user.password_hash) : false;
 
   if (!valid) {
-    res.status(401).json({ error: "Invalid email or password" });
+    const isGoogleOnly = user && !user.password_hash;
+    res.status(401).json({
+      error: isGoogleOnly ? "This account signs in with Google, not a password." : "Invalid email or password",
+    });
     return;
+  }
+
+  res.cookie(AUTH_COOKIE, signAuthToken(user.id), COOKIE_OPTIONS);
+  res.json({ id: user.id, email: user.email });
+}));
+
+authRouter.post("/google", asyncHandler(async (req, res) => {
+  if (!googleSignInConfigured()) {
+    res.status(503).json({ error: "Google sign-in isn't set up yet — add a real GOOGLE_CLIENT_ID in server/.env." });
+    return;
+  }
+
+  const { idToken } = req.body as { idToken?: string };
+  if (!idToken) {
+    res.status(400).json({ error: "idToken is required" });
+    return;
+  }
+
+  let identity;
+  try {
+    identity = await verifyGoogleIdToken(idToken);
+  } catch (err) {
+    console.warn("Google ID token verification failed:", (err as Error).message);
+    res.status(401).json({ error: "Google sign-in failed — that token couldn't be verified." });
+    return;
+  }
+
+  // Three cases: returning Google user, an existing email/password account
+  // signing in with Google for the first time (link it), or a brand new user.
+  let user = (await pool.query("SELECT id, email FROM users WHERE google_id = $1", [identity.googleId])).rows[0];
+
+  if (!user) {
+    const byEmail = await pool.query("SELECT id, email FROM users WHERE email = $1", [identity.email]);
+    if (byEmail.rows.length > 0) {
+      user = (
+        await pool.query(
+          `UPDATE users SET google_id = $1, email_verified = email_verified OR $2, name = COALESCE(name, $3)
+           WHERE id = $4 RETURNING id, email`,
+          [identity.googleId, identity.emailVerified, identity.name, byEmail.rows[0].id]
+        )
+      ).rows[0];
+    } else {
+      user = (
+        await pool.query(
+          `INSERT INTO users (email, google_id, email_verified, name)
+           VALUES ($1, $2, $3, $4) RETURNING id, email`,
+          [identity.email, identity.googleId, identity.emailVerified, identity.name]
+        )
+      ).rows[0];
+    }
   }
 
   res.cookie(AUTH_COOKIE, signAuthToken(user.id), COOKIE_OPTIONS);
@@ -75,7 +152,10 @@ authRouter.post("/logout", (_req, res) => {
 });
 
 authRouter.get("/me", requireAuth, asyncHandler(async (req, res) => {
-  const result = await pool.query("SELECT id, email FROM users WHERE id = $1", [req.userId]);
+  const result = await pool.query(
+    "SELECT id, email, name, email_verified, google_id IS NOT NULL AS is_google FROM users WHERE id = $1",
+    [req.userId]
+  );
   if (result.rows.length === 0) {
     res.status(401).json({ error: "Not authenticated" });
     return;
@@ -86,7 +166,53 @@ authRouter.get("/me", requireAuth, asyncHandler(async (req, res) => {
     [req.userId]
   );
 
-  res.json({ ...result.rows[0], hasProfile: profile.rows.length > 0 });
+  const user = result.rows[0];
+  res.json({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    emailVerified: user.email_verified,
+    isGoogleAccount: user.is_google,
+    hasProfile: profile.rows.length > 0,
+  });
+}));
+
+authRouter.post("/verify-email", asyncHandler(async (req, res) => {
+  const { token } = req.body as { token?: string };
+  if (!token) {
+    res.status(400).json({ error: "A token is required" });
+    return;
+  }
+
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const result = await pool.query(
+    `SELECT id, user_id FROM email_verification_tokens
+     WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()`,
+    [tokenHash]
+  );
+
+  if (result.rows.length === 0) {
+    res.status(400).json({ error: "This verification link is invalid or has expired." });
+    return;
+  }
+
+  const { id: tokenId, user_id: userId } = result.rows[0];
+  await pool.query("UPDATE users SET email_verified = true WHERE id = $1", [userId]);
+  await pool.query("UPDATE email_verification_tokens SET used_at = now() WHERE id = $1", [tokenId]);
+
+  res.json({ message: "Email verified" });
+}));
+
+authRouter.post("/resend-verification", requireAuth, asyncHandler(async (req, res) => {
+  const result = await pool.query("SELECT email, email_verified FROM users WHERE id = $1", [req.userId]);
+  const user = result.rows[0];
+  if (!user || user.email_verified) {
+    res.status(400).json({ error: "This account is already verified." });
+    return;
+  }
+
+  const devVerificationLink = await createEmailVerificationLink(req.userId!, user.email);
+  res.json({ message: "Verification link sent.", devVerificationLink });
 }));
 
 authRouter.post("/request-password-reset", asyncHandler(async (req, res) => {
@@ -139,7 +265,7 @@ if (process.env.NODE_ENV !== "production") {
     if (!user) {
       const passwordHash = await hashPassword(crypto.randomBytes(16).toString("hex"));
       const created = await pool.query(
-        "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email",
+        "INSERT INTO users (email, password_hash, email_verified) VALUES ($1, $2, true) RETURNING id, email",
         [DEV_EMAIL, passwordHash]
       );
       user = created.rows[0];

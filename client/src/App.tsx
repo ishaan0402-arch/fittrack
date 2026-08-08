@@ -5,6 +5,7 @@ import { LoginPage } from '@/pages/LoginPage'
 import { SignupPage } from '@/pages/SignupPage'
 import { ForgotPasswordPage } from '@/pages/ForgotPasswordPage'
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage'
+import { VerifyEmailPage } from '@/pages/VerifyEmailPage'
 import { ProfileSetupPage } from '@/pages/ProfileSetupPage'
 import { DiaryPage } from '@/pages/DiaryPage'
 import { DashboardPage } from '@/pages/DashboardPage'
@@ -74,6 +75,7 @@ function App() {
         }
       />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route
         path="/profile-setup"
         element={

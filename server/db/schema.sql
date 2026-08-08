@@ -1,8 +1,16 @@
+-- password_hash is nullable because Google-sign-in-only accounts have no
+-- password; the check constraint ensures every user has at least one way
+-- to authenticate. google_id is Google's stable "sub" claim, not the email
+-- (emails can change; sub never does).
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  password_hash TEXT,
+  google_id TEXT UNIQUE,
+  email_verified BOOLEAN NOT NULL DEFAULT false,
+  name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT users_auth_method_check CHECK (password_hash IS NOT NULL OR google_id IS NOT NULL)
 );
 
 -- Health profile used to estimate maintenance calories (TDEE). One row per
@@ -28,6 +36,17 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 );
 
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  token_hash TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Same shape as password_reset_tokens, for the "confirm this email address"
+-- link sent (well — logged; no email provider is configured) on signup.
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id),
   token_hash TEXT NOT NULL,

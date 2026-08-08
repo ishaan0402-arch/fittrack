@@ -83,6 +83,35 @@ logsRouter.post("/", asyncHandler(async (req, res) => {
   res.status(201).json(result.rows[0]);
 }));
 
+logsRouter.patch("/:id", asyncHandler(async (req, res) => {
+  const { quantityGrams, note, mealType } = req.body as {
+    quantityGrams?: number;
+    note?: string;
+    mealType?: string;
+  };
+
+  if (!quantityGrams || quantityGrams <= 0) {
+    res.status(400).json({ error: "A positive quantityGrams is required" });
+    return;
+  }
+  if (mealType && !MEAL_TYPES.includes(mealType as MealType)) {
+    res.status(400).json({ error: `mealType must be one of ${MEAL_TYPES.join(", ")}` });
+    return;
+  }
+
+  const result = await pool.query(
+    `UPDATE food_logs SET quantity_grams = $1, note = $2, meal_type = COALESCE($3, meal_type)
+     WHERE id = $4 AND user_id = $5
+     RETURNING id, food_id, quantity_grams, note, meal_type, logged_at`,
+    [quantityGrams, note?.trim() || null, mealType ?? null, req.params.id, req.userId]
+  );
+  if (result.rows.length === 0) {
+    res.status(404).json({ error: "Log entry not found" });
+    return;
+  }
+  res.json(result.rows[0]);
+}));
+
 logsRouter.delete("/:id", asyncHandler(async (req, res) => {
   const result = await pool.query(
     "DELETE FROM food_logs WHERE id = $1 AND user_id = $2 RETURNING id",

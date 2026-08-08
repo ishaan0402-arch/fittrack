@@ -117,6 +117,21 @@ export async function deleteLogEntry(id: number): Promise<void> {
   if (!res.ok) throw new Error('Removing log entry failed');
 }
 
+export async function updateLogEntry(
+  id: number,
+  quantityGrams: number,
+  note?: string,
+  mealType?: MealType
+): Promise<LogEntry> {
+  const res = await fetch(`/api/logs/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ quantityGrams, note, mealType }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Updating the entry failed'));
+  return res.json();
+}
+
 export async function getTodayLog(): Promise<DayLog> {
   const res = await fetch('/api/logs');
   if (!res.ok) throw new Error('Fetching log failed');
@@ -141,16 +156,20 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
 export interface AuthUser {
   id: number;
   email: string;
+  name: string | null;
+  emailVerified: boolean;
+  isGoogleAccount: boolean;
   hasProfile: boolean;
 }
 
-export async function signup(email: string, password: string): Promise<void> {
+export async function signup(email: string, password: string): Promise<{ devVerificationLink?: string }> {
   const res = await fetch('/api/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(await errorMessage(res, 'Sign up failed'));
+  return res.json();
 }
 
 export async function login(email: string, password: string): Promise<void> {
@@ -160,6 +179,15 @@ export async function login(email: string, password: string): Promise<void> {
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(await errorMessage(res, 'Login failed'));
+}
+
+export async function googleSignIn(idToken: string): Promise<void> {
+  const res = await fetch('/api/auth/google', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Google sign-in failed'));
 }
 
 export async function logout(): Promise<void> {
@@ -175,6 +203,21 @@ export async function getMe(): Promise<AuthUser | null> {
   const res = await fetch('/api/auth/me');
   if (res.status === 401) return null;
   if (!res.ok) throw new Error('Failed to fetch session');
+  return res.json();
+}
+
+export async function verifyEmail(token: string): Promise<void> {
+  const res = await fetch('/api/auth/verify-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Verification failed'));
+}
+
+export async function resendVerification(): Promise<{ devVerificationLink?: string }> {
+  const res = await fetch('/api/auth/resend-verification', { method: 'POST' });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Could not resend verification link'));
   return res.json();
 }
 
