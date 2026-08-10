@@ -16,12 +16,15 @@ import {
   getMeasurementHistory,
   logMeasurement,
   deleteMeasurement,
+  getProfile,
   MEASUREMENT_TYPE_LABELS,
   type ProgressPhoto,
   type LatestMeasurement,
   type Measurement,
   type MeasurementType,
+  type Profile,
 } from '@/api'
+import { estimateBodyFatPct } from '@/lib/bodyFat'
 
 const MEASUREMENT_TYPES = Object.keys(MEASUREMENT_TYPE_LABELS) as MeasurementType[]
 
@@ -42,6 +45,19 @@ export function ProgressPage() {
 
   const [trendType, setTrendType] = useState<MeasurementType | null>(null)
   const [trendHistory, setTrendHistory] = useState<Measurement[]>([])
+
+  const [profile, setProfile] = useState<Profile | null>(null)
+  useEffect(() => {
+    getProfile().then(setProfile).catch(() => {})
+  }, [])
+
+  const bodyFatPct = (() => {
+    if (!profile) return null
+    const byType: Partial<Record<MeasurementType, number>> = {}
+    for (const m of measurements) byType[m.type] = Number(m.value_cm)
+    if (byType.waist == null || byType.neck == null) return null
+    return estimateBodyFatPct(profile.gender, profile.heightCm, byType.waist, byType.neck, byType.hips)
+  })()
 
   useEffect(() => {
     if (!file) {
@@ -240,6 +256,17 @@ export function ProgressPage() {
               Log
             </Button>
           </form>
+
+          {bodyFatPct != null && (
+            <div className="rounded-md border border-brand/30 bg-accent/60 p-3">
+              <p className="label-quiet">Estimated body fat</p>
+              <p className="font-hero text-2xl text-card-foreground">{bodyFatPct.toFixed(1)}%</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                US Navy method, from your waist/neck{profile?.gender === 'female' ? '/hip' : ''} measurements —
+                an estimate, not a clinical measurement.
+              </p>
+            </div>
+          )}
 
           {measurements.length === 0 ? (
             <p className="text-sm text-muted-foreground">No measurements logged yet.</p>

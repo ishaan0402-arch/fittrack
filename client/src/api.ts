@@ -299,6 +299,22 @@ export async function saveProfile(profile: ProfileInput): Promise<Profile> {
   return res.json();
 }
 
+export interface AdaptiveTarget {
+  available: boolean;
+  calorieTarget: number;
+  baseTarget?: number;
+  avgCalories?: number;
+  actualWeeklyRateKg?: number;
+  expectedWeeklyRateKg?: number;
+  daysOfData?: number;
+}
+
+export async function getAdaptiveTarget(): Promise<AdaptiveTarget> {
+  const res = await fetch('/api/profile/adaptive-target');
+  if (!res.ok) throw new Error('Failed to load adaptive target');
+  return res.json();
+}
+
 export interface CoachMessage {
   id: number;
   role: 'user' | 'assistant';
@@ -352,6 +368,17 @@ export interface DailyCalories {
 export async function getCalorieHistory(days = 14): Promise<DailyCalories[]> {
   const res = await fetch(`/api/logs/history?days=${days}`);
   if (!res.ok) throw new Error('Failed to load calorie history');
+  return res.json();
+}
+
+export interface NutrientSummary {
+  daysWithData: number;
+  nutrients: { nutrient_id: number; total_amount: string }[];
+}
+
+export async function getNutrientSummary(days = 7): Promise<NutrientSummary> {
+  const res = await fetch(`/api/logs/nutrient-summary?days=${days}`);
+  if (!res.ok) throw new Error('Failed to load nutrient summary');
   return res.json();
 }
 
@@ -630,6 +657,17 @@ export async function getWorkoutVolume(weeks = 12): Promise<WeeklyVolume[]> {
   return res.json();
 }
 
+export interface OneRepMaxPoint {
+  date: string;
+  e1rm: string;
+}
+
+export async function getOneRepMaxTrend(exercise: string): Promise<OneRepMaxPoint[]> {
+  const res = await fetch(`/api/workouts/1rm?exercise=${encodeURIComponent(exercise)}`);
+  if (!res.ok) throw new Error('Failed to load 1RM trend');
+  return res.json();
+}
+
 export interface WorkoutSummaryEntry {
   date: string;
   is_rest_day: boolean;
@@ -801,4 +839,197 @@ export async function createRecipe(
 export async function deleteRecipe(recipeId: number): Promise<void> {
   const res = await fetch(`/api/recipes/${recipeId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Deleting the recipe failed');
+}
+
+export interface FastingSession {
+  id: number;
+  goalHours: string;
+  startTime: string;
+  endTime: string | null;
+}
+
+export async function getCurrentFast(): Promise<FastingSession | null> {
+  const res = await fetch('/api/fasting/current');
+  if (!res.ok) throw new Error('Failed to load fasting status');
+  return res.json();
+}
+
+export async function getFastingHistory(limit = 20): Promise<FastingSession[]> {
+  const res = await fetch(`/api/fasting/history?limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to load fasting history');
+  return res.json();
+}
+
+export async function startFast(goalHours: number): Promise<FastingSession> {
+  const res = await fetch('/api/fasting/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ goalHours }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Starting the fast failed'));
+  return res.json();
+}
+
+export async function stopFast(): Promise<FastingSession> {
+  const res = await fetch('/api/fasting/stop', { method: 'POST' });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Ending the fast failed'));
+  return res.json();
+}
+
+export interface MealSuggestionItem {
+  name: string;
+  quantityGrams: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  reason: string;
+}
+
+export interface MealSuggestions {
+  remaining: { calories: number; protein: number; carbs: number; fat: number };
+  items: MealSuggestionItem[];
+}
+
+export async function getMealSuggestions(): Promise<MealSuggestions> {
+  const res = await fetch('/api/meal-suggest/suggest', { method: 'POST' });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Getting suggestions failed'));
+  return res.json();
+}
+
+export interface StravaStatus {
+  connected: boolean;
+  athleteId?: number;
+  connectedAt?: string;
+}
+
+export interface StravaActivity {
+  id: number;
+  name: string;
+  type: string;
+  distanceMeters: string;
+  movingTimeSeconds: number;
+  totalElevationGainMeters: string;
+  startDate: string;
+}
+
+export interface StravaWeeklyDistance {
+  week_start: string;
+  distance_km: string;
+}
+
+export async function getStravaStatus(): Promise<StravaStatus> {
+  const res = await fetch('/api/strava/status');
+  if (!res.ok) throw new Error('Failed to load Strava connection status');
+  return res.json();
+}
+
+export async function getStravaActivities(limit = 20): Promise<StravaActivity[]> {
+  const res = await fetch(`/api/strava/activities?limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to load Strava activities');
+  return res.json();
+}
+
+export async function getStravaWeeklyDistance(weeks = 12): Promise<StravaWeeklyDistance[]> {
+  const res = await fetch(`/api/strava/weekly-distance?weeks=${weeks}`);
+  if (!res.ok) throw new Error('Failed to load Strava weekly distance');
+  return res.json();
+}
+
+export async function syncStrava(): Promise<{ synced: number }> {
+  const res = await fetch('/api/strava/sync', { method: 'POST' });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Syncing with Strava failed'));
+  return res.json();
+}
+
+export async function disconnectStrava(): Promise<void> {
+  const res = await fetch('/api/strava/disconnect', { method: 'DELETE' });
+  if (!res.ok) throw new Error('Disconnecting Strava failed');
+}
+
+export type SleepQuality = 'poor' | 'fair' | 'good' | 'great';
+
+export interface SleepEntry {
+  date: string;
+  hours: string;
+  quality: SleepQuality | null;
+}
+
+export async function getSleepSummary(days = 7): Promise<SleepEntry[]> {
+  const res = await fetch(`/api/sleep/summary?days=${days}`);
+  if (!res.ok) throw new Error('Failed to load sleep history');
+  return res.json();
+}
+
+export async function logSleep(date: string, hours: number, quality?: SleepQuality): Promise<SleepEntry> {
+  const res = await fetch(`/api/sleep/${date}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hours, quality }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Logging sleep failed'));
+  return res.json();
+}
+
+export interface MealPlanEntry {
+  id: number;
+  date: string;
+  meal_type: MealType;
+  food_id: number;
+  quantity_grams: string;
+  description: string;
+  calories: string;
+}
+
+export interface GroceryListItem {
+  food_id: number;
+  description: string;
+  total_quantity_grams: string;
+}
+
+export async function getMealPlanRange(start: string, end: string): Promise<MealPlanEntry[]> {
+  const res = await fetch(`/api/meal-plan/range?start=${start}&end=${end}`);
+  if (!res.ok) throw new Error('Failed to load meal plan');
+  return res.json();
+}
+
+export async function getGroceryList(start: string, end: string): Promise<GroceryListItem[]> {
+  const res = await fetch(`/api/meal-plan/grocery-list?start=${start}&end=${end}`);
+  if (!res.ok) throw new Error('Failed to load grocery list');
+  return res.json();
+}
+
+export async function addMealPlanEntry(
+  date: string,
+  mealType: MealType,
+  foodId: number,
+  quantityGrams: number
+): Promise<MealPlanEntry> {
+  const res = await fetch('/api/meal-plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, mealType, foodId, quantityGrams }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Adding to your plan failed'));
+  return res.json();
+}
+
+export async function addMealToPlan(date: string, mealType: MealType, mealId: number): Promise<MealPlanEntry[]> {
+  const res = await fetch('/api/meal-plan/add-meal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, mealType, mealId }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Adding the meal to your plan failed'));
+  return res.json();
+}
+
+export async function logMealPlanEntry(id: number): Promise<void> {
+  const res = await fetch(`/api/meal-plan/${id}/log`, { method: 'POST' });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Logging that item failed'));
+}
+
+export async function deleteMealPlanEntry(id: number): Promise<void> {
+  const res = await fetch(`/api/meal-plan/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Removing that item failed');
 }

@@ -57,6 +57,23 @@ export function calorieTargetForGoal(tdee: number, goal: Goal): number {
   return Math.round(tdee + CALORIE_ADJUSTMENT[goal]);
 }
 
+// Expected weekly bodyweight change as a % of bodyweight, for the adaptive
+// calorie target (see routes/profile.ts's /adaptive-target). Roughly the
+// classic recommended rates: ~0.5%/week loss on a cut, a leaner surplus for
+// the strength/physique goals than a pure bulk.
+const WEEKLY_RATE_PCT: Record<Goal, number> = {
+  bulk: 0.4,
+  cut: -0.5,
+  maintain: 0,
+  powerlifting: 0.1,
+  bodybuilding: 0.25,
+  general_fitness: 0,
+};
+
+export function expectedWeeklyRateKg(weightKg: number, goal: Goal): number {
+  return (weightKg * WEEKLY_RATE_PCT[goal]) / 100;
+}
+
 export function macroTargetsForGoal(weightKg: number, goal: Goal, calorieTarget: number) {
   const protein = Math.round(weightKg * PROTEIN_G_PER_KG[goal]);
   const fatCalories = calorieTarget * FAT_CALORIE_SHARE[goal];

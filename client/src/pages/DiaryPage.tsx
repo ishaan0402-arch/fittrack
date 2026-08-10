@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Camera, CopyPlus, Pencil, Plus, Search, Trash2, Type, X } from 'lucide-react'
+import { Camera, CopyPlus, Mic, Pencil, Plus, Search, Sparkles, Trash2, Type, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -19,7 +19,9 @@ import {
   createCustomFood,
   estimatePhotoNutrition,
   estimateTextNutrition,
+  getMealSuggestions,
   getProfile,
+  getAdaptiveTarget,
   defaultMealType,
   MEAL_TYPES,
   MEAL_TYPE_LABELS,
@@ -28,6 +30,8 @@ import {
   type LogEntry,
   type NutrientTotal,
   type NutritionEstimateItem,
+  type MealSuggestions,
+  type AdaptiveTarget,
   type Profile,
   type MealType,
 } from '@/api'
@@ -72,6 +76,7 @@ function toEditableItems(items: NutritionEstimateItem[]): EditableNutritionItem[
 
 export function DiaryPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [adaptiveTarget, setAdaptiveTarget] = useState<AdaptiveTarget | null>(null)
 
   const [restaurant, setRestaurant] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -112,6 +117,14 @@ export function DiaryPage() {
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [textLogOpen, setTextLogOpen] = useState(false)
   const [textDescription, setTextDescription] = useState('')
+  const [listening, setListening] = useState(false)
+  // Web Speech API has no TS DOM lib types yet, hence `any` here.
+  const recognitionRef = useRef<any>(null)
+
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestions, setSuggestions] = useState<MealSuggestions | null>(null)
+  const [suggestError, setSuggestError] = useState<string | null>(null)
+  const [loggingSuggestionIndex, setLoggingSuggestionIndex] = useState<number | null>(null)
 
   const refreshLog = () => {
     getTodayLog()
@@ -129,6 +142,9 @@ export function DiaryPage() {
     getProfile()
       .then(setProfile)
       .catch((e) => setError((e as Error).message))
+    getAdaptiveTarget()
+      .then((t) => setAdaptiveTarget(t.available ? t : null))
+      .catch(() => {})
   }, [])
 
   const handleSearch = async (e: FormEvent) => {
@@ -265,6 +281,32 @@ export function DiaryPage() {
     }
   }
 
+  const speechSupported =
+    typeof window !== 'undefined' && Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+
+  const handleVoiceInput = () => {
+    if (listening) {
+      recognitionRef.current?.stop()
+      return
+    }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) return
+
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-US'
+    recognition.interimResults = false
+    recognition.maxAlternatives = 1
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript
+      setTextDescription((prev) => (prev ? `${prev} ${transcript}` : transcript))
+    }
+    recognition.onend = () => setListening(false)
+    recognition.onerror = () => setListening(false)
+    recognitionRef.current = recognition
+    setListening(true)
+    recognition.start()
+  }
+
   const updateAiItem = (index: number, patch: Partial<EditableNutritionItem>) => {
     setAiItems((items) => items && items.map((it, i) => (i === index ? { ...it, ...patch } : it)))
   }
@@ -301,6 +343,45 @@ export function DiaryPage() {
       setError((e as Error).message)
     } finally {
       setAiLogging(false)
+    }
+  }
+
+  const handleSuggest = async () => {
+    setSuggesting(true)
+    setSuggestError(null)
+    try {
+      setSuggestions(await getMealSuggestions())
+    } catch (e) {
+      setSuggestError((e as Error).message)
+    } finally {
+      setSuggesting(false)
+    }
+  }
+
+  // Same one-off-custom-food trick as the other AI logging flows — the
+  // suggestion's numbers become the food's entire nutrition profile, sized
+  // to exactly the quantity suggested.
+  const handleLogSuggestion = async (index: number) => {
+    if (!suggestions) return
+    const item = suggestions.items[index]
+    setLoggingSuggestionIndex(index)
+    setError(null)
+    try {
+      const food = await createCustomFood({
+        description: item.name,
+        servingSizeGrams: item.quantityGrams,
+        calories: item.calories,
+        protein: item.proteinG,
+        carbs: item.carbsG,
+        fat: item.fatG,
+      })
+      await logFood(food.id, item.quantityGrams, undefined, defaultMealType())
+      setSuggestions((s) => (s ? { ...s, items: s.items.filter((_, i) => i !== index) } : s))
+      refreshLog()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoggingSuggestionIndex(null)
     }
   }
 
@@ -381,6 +462,81 @@ export function DiaryPage() {
           <MeterRow label="Protein" consumed={totals.protein} target={macroTargets.protein} unit="g" />
           <MeterRow label="Carbs" consumed={totals.carbs} target={macroTargets.carbs} unit="g" />
           <MeterRow label="Fat" consumed={totals.fat} target={macroTargets.fat} unit="g" />
+
+          {adaptiveTarget && (
+            <div className="rounded-md border border-brand/30 bg-accent/60 px-3 py-2 text-xs text-muted-foreground">
+              <span className="font-medium text-card-foreground">
+                Adaptive target: {adaptiveTarget.calorieTarget} kcal
+              </span>{' '}
+              — based on your actual {adaptiveTarget.daysOfData}-day weight trend (
+              {(adaptiveTarget.actualWeeklyRateKg ?? 0) > 0 ? '+' : ''}
+              {adaptiveTarget.actualWeeklyRateKg}kg/week vs. an expected{' '}
+              {(adaptiveTarget.expectedWeeklyRateKg ?? 0) > 0 ? '+' : ''}
+              {adaptiveTarget.expectedWeeklyRateKg}kg/week), not just the formula estimate above.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>What should I eat?</CardTitle>
+          <CardDescription>
+            AI-suggested meals sized to exactly what you have left today — tap one to log it.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {suggestError && (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {suggestError}
+            </p>
+          )}
+          {!suggestions ? (
+            <Button onClick={handleSuggest} disabled={suggesting}>
+              <Sparkles size={16} />
+              {suggesting ? 'Thinking…' : 'Suggest something'}
+            </Button>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Remaining: {suggestions.remaining.calories} kcal · {suggestions.remaining.protein}g protein ·{' '}
+                {suggestions.remaining.carbs}g carbs · {suggestions.remaining.fat}g fat
+              </p>
+              {suggestions.items.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Logged them all — nice.</p>
+              ) : (
+                <div className="space-y-2">
+                  {suggestions.items.map((item, index) => (
+                    <div
+                      key={`${item.name}-${index}`}
+                      className="flex items-start justify-between gap-3 rounded-md border border-border p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-card-foreground">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.quantityGrams}g · {item.calories} kcal · {item.proteinG}p / {item.carbsG}c /{' '}
+                          {item.fatG}f
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.reason}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0"
+                        onClick={() => handleLogSuggestion(index)}
+                        disabled={loggingSuggestionIndex !== null}
+                      >
+                        {loggingSuggestionIndex === index ? 'Logging…' : 'Log it'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Button size="sm" variant="ghost" onClick={handleSuggest} disabled={suggesting}>
+                {suggesting ? 'Thinking…' : 'More ideas'}
+              </Button>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -595,12 +751,26 @@ export function DiaryPage() {
                 </div>
               ) : textLogOpen ? (
                 <form onSubmit={handleTextEstimate} className="space-y-2 rounded-md bg-accent p-3">
-                  <Input
-                    value={textDescription}
-                    onChange={(e) => setTextDescription(e.target.value)}
-                    placeholder="e.g. grilled chicken sandwich and a side salad"
-                    autoFocus
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      value={textDescription}
+                      onChange={(e) => setTextDescription(e.target.value)}
+                      placeholder="e.g. grilled chicken sandwich and a side salad"
+                      className="flex-1"
+                      autoFocus
+                    />
+                    {speechSupported && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant={listening ? 'default' : 'outline'}
+                        aria-label={listening ? 'Stop listening' : 'Speak instead of typing'}
+                        onClick={handleVoiceInput}
+                      >
+                        <Mic className={listening ? 'animate-pulse' : undefined} />
+                      </Button>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     <Button type="submit" size="sm" disabled={!textDescription.trim()}>
                       Estimate nutrition

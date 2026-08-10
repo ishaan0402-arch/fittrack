@@ -100,6 +100,32 @@ workoutsRouter.get("/volume", asyncHandler(async (req, res) => {
   res.json(result.rows);
 }));
 
+// Estimated 1-rep max over time for a single exercise (Epley formula:
+// weight * (1 + reps/30)), for the Workouts page's per-exercise trend chart.
+// Registered before "/:date" for the same reason as "/summary" above.
+workoutsRouter.get("/1rm", asyncHandler(async (req, res) => {
+  const exercise = String(req.query.exercise || "").trim();
+  if (!exercise) {
+    res.status(400).json({ error: "exercise query param is required" });
+    return;
+  }
+
+  const result = await pool.query(
+    `SELECT
+       w.date::text AS date,
+       MAX(e.weight_kg * (1 + e.reps / 30.0)) AS e1rm
+     FROM workout_exercises e
+     JOIN workouts w ON w.id = e.workout_id
+     WHERE w.user_id = $1
+       AND lower(e.name) = lower($2)
+       AND e.weight_kg IS NOT NULL AND e.reps IS NOT NULL
+     GROUP BY w.date
+     ORDER BY w.date`,
+    [req.userId, exercise]
+  );
+  res.json(result.rows);
+}));
+
 workoutsRouter.get("/:date", asyncHandler(async (req, res) => {
   if (!DATE_RE.test(req.params.date)) {
     res.status(400).json({ error: "date must be YYYY-MM-DD" });

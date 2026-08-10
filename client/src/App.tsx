@@ -12,8 +12,10 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { CoachPage } from '@/pages/CoachPage'
 import { FoodsPage } from '@/pages/FoodsPage'
 import { MealsPage } from '@/pages/MealsPage'
+import { MealPlanPage } from '@/pages/MealPlanPage'
 import { ScanPage } from '@/pages/ScanPage'
 import { WorkoutsPage } from '@/pages/WorkoutsPage'
+import { FastingPage } from '@/pages/FastingPage'
 import { ProgressPage } from '@/pages/ProgressPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
@@ -125,6 +127,14 @@ function App() {
         }
       />
       <Route
+        path="/meal-plan"
+        element={
+          <RequireProfile>
+            <MealPlanPage />
+          </RequireProfile>
+        }
+      />
+      <Route
         path="/scan"
         element={
           <RequireProfile>
@@ -137,6 +147,14 @@ function App() {
         element={
           <RequireProfile>
             <WorkoutsPage />
+          </RequireProfile>
+        }
+      />
+      <Route
+        path="/fasting"
+        element={
+          <RequireProfile>
+            <FastingPage />
           </RequireProfile>
         }
       />

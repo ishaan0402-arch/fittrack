@@ -222,3 +222,72 @@ CREATE TABLE IF NOT EXISTS recipe_items (
   food_id INTEGER NOT NULL REFERENCES foods(id),
   quantity_grams NUMERIC NOT NULL CHECK (quantity_grams > 0)
 );
+
+-- Intermittent fasting sessions. end_time IS NULL means the fast is still
+-- in progress — at most one such row per user is enforced at the
+-- application layer (routes/fasting.ts), not a DB constraint, since a
+-- partial unique index would need to key off end_time IS NULL specifically.
+CREATE TABLE IF NOT EXISTS fasting_sessions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  goal_hours NUMERIC NOT NULL DEFAULT 16,
+  start_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+  end_time TIMESTAMPTZ
+);
+
+-- One Strava OAuth connection per user. access_token/refresh_token are
+-- opaque bearer credentials from Strava's OAuth2 authorization-code flow;
+-- expires_at drives the refresh-before-use check in strava.ts (Strava
+-- access tokens last ~6h and must be refreshed with the refresh_token).
+CREATE TABLE IF NOT EXISTS strava_connections (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id),
+  strava_athlete_id BIGINT NOT NULL,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  connected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Activities synced from Strava (runs, rides, swims, etc.) — a read-only
+-- mirror refreshed by POST /api/strava/sync. strava_activity_id is globally
+-- unique across all Strava athletes, so it alone is the upsert key.
+CREATE TABLE IF NOT EXISTS strava_activities (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  strava_activity_id BIGINT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  distance_meters NUMERIC NOT NULL DEFAULT 0,
+  moving_time_seconds INTEGER NOT NULL DEFAULT 0,
+  elapsed_time_seconds INTEGER NOT NULL DEFAULT 0,
+  total_elevation_gain_meters NUMERIC NOT NULL DEFAULT 0,
+  start_date TIMESTAMPTZ NOT NULL,
+  average_speed_mps NUMERIC NOT NULL DEFAULT 0,
+  synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- One row per night, same "one row per calendar day" shape as workouts.
+-- date is the morning-after date (the day you woke up), which is how
+-- people naturally think of "last night's sleep".
+CREATE TABLE IF NOT EXISTS sleep_logs (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  date DATE NOT NULL,
+  hours NUMERIC NOT NULL CHECK (hours >= 0 AND hours <= 24),
+  quality TEXT CHECK (quality IN ('poor', 'fair', 'good', 'great')),
+  logged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, date)
+);
+
+-- Planned (not yet eaten) foods for a future date — same shape as food_logs
+-- but keyed to a plan date instead of a logged timestamp. POST .../:id/log
+-- moves an entry into food_logs and deletes it from here.
+CREATE TABLE IF NOT EXISTS meal_plan_entries (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  date DATE NOT NULL,
+  meal_type TEXT NOT NULL DEFAULT 'snack' CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
+  food_id INTEGER NOT NULL REFERENCES foods(id),
+  quantity_grams NUMERIC NOT NULL CHECK (quantity_grams > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

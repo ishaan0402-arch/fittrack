@@ -1,12 +1,13 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Bell, Dumbbell, MessageCircle, TrendingUp, Watch } from 'lucide-react'
+import { Bell, Dumbbell, MessageCircle, Moon, TrendingUp, Watch } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { AppLayout } from '@/components/app-layout'
 import { WeightTrendChart, CaloriesTrendChart } from '@/components/trend-charts'
 import { StreakFlame, StreakDayPips } from '@/components/streak-flame'
+import { NUTRIENT_DEFS } from '@/lib/nutrients'
 import {
   getWeightHistory,
   logWeight,
@@ -17,6 +18,9 @@ import {
   getInsights,
   saveWorkout,
   getProfile,
+  getNutrientSummary,
+  getSleepSummary,
+  logSleep,
   type WeightEntry,
   type DailyCalories,
   type WorkoutSummaryEntry,
@@ -24,6 +28,8 @@ import {
   type Insight,
   type Streak,
   type Profile,
+  type NutrientSummary,
+  type SleepEntry,
 } from '@/api'
 
 // Simple linear projection from the trend window's first/last points — good
@@ -349,6 +355,124 @@ function CoachCard() {
   )
 }
 
+function NutrientWatchCard() {
+  const [summary, setSummary] = useState<NutrientSummary | null>(null)
+
+  useEffect(() => {
+    getNutrientSummary(7)
+      .then(setSummary)
+      .catch(() => {})
+  }, [])
+
+  const low = useMemo(() => {
+    if (!summary || summary.daysWithData === 0) return null
+    return summary.nutrients
+      .map((n) => {
+        const def = NUTRIENT_DEFS.find((d) => d.id === n.nutrient_id)
+        // Only vitamins/minerals have a DV that represents a target to
+        // reach — other DVs (fat, cholesterol, sodium, saturated fat) are
+        // upper limits, where "below the DV" is good news, not a deficiency.
+        if (!def?.dv || (def.group !== 'vitamins' && def.group !== 'minerals') || def.id === 1093) return null
+        const avgAmount = Number(n.total_amount) / summary.daysWithData
+        const pct = (avgAmount / def.dv) * 100
+        return { label: def.label, pct }
+      })
+      .filter((r): r is { label: string; pct: number } => r !== null && r.pct < 70)
+      .sort((a, b) => a.pct - b.pct)
+      .slice(0, 3)
+  }, [summary])
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Nutrient watch</CardTitle>
+        <CardDescription>Micronutrients running low this week</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2 py-2">
+        {!summary || summary.daysWithData === 0 ? (
+          <p className="text-sm text-muted-foreground">Log a few meals to see nutrient insights.</p>
+        ) : low && low.length > 0 ? (
+          low.map((r) => (
+            <div key={r.label} className="flex items-center justify-between text-sm">
+              <span className="text-card-foreground">{r.label}</span>
+              <span className="text-muted-foreground">{Math.round(r.pct)}% of daily value</span>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">You're hitting your micronutrient targets this week.</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function SleepCard() {
+  const [entries, setEntries] = useState<SleepEntry[]>([])
+  const [hoursInput, setHoursInput] = useState('')
+  const [logging, setLogging] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = () => {
+    getSleepSummary(7)
+      .then(setEntries)
+      .catch((e) => setError((e as Error).message))
+  }
+
+  useEffect(refresh, [])
+
+  const avgHours =
+    entries.length > 0
+      ? Math.round((entries.reduce((sum, e) => sum + Number(e.hours), 0) / entries.length) * 10) / 10
+      : null
+
+  const handleLog = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!hoursInput) return
+    setLogging(true)
+    setError(null)
+    try {
+      const today = new Date()
+      const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      await logSleep(dateKey, Number(hoursInput))
+      setHoursInput('')
+      refresh()
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLogging(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Moon size={18} className="text-muted-foreground" />
+          Sleep
+        </CardTitle>
+        <CardDescription>{avgHours != null ? `${avgHours}h avg this week` : 'Log last night\'s sleep'}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2 py-2">
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <form onSubmit={handleLog} className="flex gap-2">
+          <Input
+            type="number"
+            min={0}
+            max={24}
+            step="0.5"
+            placeholder="Hours slept"
+            value={hoursInput}
+            onChange={(e) => setHoursInput(e.target.value)}
+          />
+          <Button type="submit" size="sm" disabled={logging || !hoursInput}>
+            {logging ? 'Logging…' : 'Log'}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+
 function ConnectedDevicesCard() {
   return (
     <Card className="border-dashed">
@@ -357,7 +481,9 @@ function ConnectedDevicesCard() {
           <Watch size={18} className="text-muted-foreground" />
           Connected devices
         </CardTitle>
-        <CardDescription>Garmin sync (sleep, activity) is planned but not built yet.</CardDescription>
+        <CardDescription>
+          Strava sync is available from the Workouts page. Garmin sync is planned but not built yet.
+        </CardDescription>
       </CardHeader>
     </Card>
   )
@@ -512,6 +638,8 @@ export function DashboardPage() {
           />
           <WeightChangeCard data={weightData} rangeLabel={rangeLabel} />
           <WorkoutSummaryCard entries={workoutSummary} onLogged={refreshWorkoutSummary} />
+          <SleepCard />
+          <NutrientWatchCard />
           <CoachCard />
           <ConnectedDevicesCard />
         </div>

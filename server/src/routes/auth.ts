@@ -5,12 +5,17 @@ import { asyncHandler } from "../asyncHandler.js";
 import { AUTH_COOKIE, hashPassword, verifyPassword, signAuthToken } from "../auth.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { verifyGoogleIdToken, googleSignInConfigured } from "../googleAuth.js";
+import { CLIENT_ORIGIN, IS_PRODUCTION } from "../config.js";
+import { authLimiter } from "../rateLimit.js";
 
 export const authRouter = Router();
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: "lax" as const,
+  // Browsers reject "Secure" cookies over plain http — fine in prod (always
+  // https) but would silently break login in local dev (plain http).
+  secure: IS_PRODUCTION,
   maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days, matches the JWT's own expiry
 };
 
@@ -32,12 +37,12 @@ async function createEmailVerificationLink(userId: number, email: string): Promi
     [userId, tokenHash, expiresAt]
   );
 
-  const link = `http://localhost:5173/verify-email?token=${token}`;
+  const link = `${CLIENT_ORIGIN}/verify-email?token=${token}`;
   console.log(`[email verification] ${email} -> ${link}`);
   return link;
 }
 
-authRouter.post("/signup", asyncHandler(async (req, res) => {
+authRouter.post("/signup", authLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
 
   if (!email || !isValidEmail(email)) {
@@ -68,7 +73,7 @@ authRouter.post("/signup", asyncHandler(async (req, res) => {
   res.status(201).json({ id: user.id, email: user.email, devVerificationLink });
 }));
 
-authRouter.post("/login", asyncHandler(async (req, res) => {
+authRouter.post("/login", authLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body as { email?: string; password?: string };
   if (!email || !password) {
     res.status(400).json({ error: "Email and password are required" });
@@ -96,7 +101,7 @@ authRouter.post("/login", asyncHandler(async (req, res) => {
   res.json({ id: user.id, email: user.email });
 }));
 
-authRouter.post("/google", asyncHandler(async (req, res) => {
+authRouter.post("/google", authLimiter, asyncHandler(async (req, res) => {
   if (!googleSignInConfigured()) {
     res.status(503).json({ error: "Google sign-in isn't set up yet — add a real GOOGLE_CLIENT_ID in server/.env." });
     return;
@@ -215,7 +220,7 @@ authRouter.post("/resend-verification", requireAuth, asyncHandler(async (req, re
   res.json({ message: "Verification link sent.", devVerificationLink });
 }));
 
-authRouter.post("/request-password-reset", asyncHandler(async (req, res) => {
+authRouter.post("/request-password-reset", authLimiter, asyncHandler(async (req, res) => {
   const { email } = req.body as { email?: string };
   const result = email
     ? await pool.query("SELECT id FROM users WHERE email = $1", [email])
@@ -238,7 +243,7 @@ authRouter.post("/request-password-reset", asyncHandler(async (req, res) => {
     [userId, tokenHash, expiresAt]
   );
 
-  const resetLink = `http://localhost:5173/reset-password?token=${token}`;
+  const resetLink = `${CLIENT_ORIGIN}/reset-password?token=${token}`;
 
   // No email provider is configured yet, so this just logs the link instead
   // of sending it. Swap this for a real email send (e.g. Resend, SES, SMTP)
@@ -284,7 +289,7 @@ if (process.env.NODE_ENV !== "production") {
   }));
 }
 
-authRouter.post("/reset-password", asyncHandler(async (req, res) => {
+authRouter.post("/reset-password", authLimiter, asyncHandler(async (req, res) => {
   const { token, newPassword } = req.body as { token?: string; newPassword?: string };
 
   if (!token || !newPassword || newPassword.length < 8) {

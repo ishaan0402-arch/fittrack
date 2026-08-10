@@ -198,6 +198,38 @@ logsRouter.get("/history", asyncHandler(async (req, res) => {
   res.json(result.rows);
 }));
 
+// Per-nutrient totals over the last N days, plus how many distinct days had
+// any logging at all — the client (client/src/lib/nutrients.ts's DV table)
+// divides total by days-with-data and compares to the FDA Daily Value to
+// figure out which micronutrients have been running low. Kept as raw totals
+// here since the RDA/DV comparison convention in this app lives client-side
+// (see nutrition-detail.tsx), not duplicated on the server.
+logsRouter.get("/nutrient-summary", asyncHandler(async (req, res) => {
+  const days = Math.min(Number(req.query.days) || 7, 90);
+
+  const [totalsResult, daysResult] = await Promise.all([
+    pool.query(
+      `SELECT fn.nutrient_id, ROUND(SUM(fn.amount_per_100g * l.quantity_grams / 100), 2) AS total_amount
+       FROM food_logs l
+       JOIN food_nutrients fn ON fn.food_id = l.food_id
+       WHERE l.user_id = $1 AND l.logged_at::date >= CURRENT_DATE - ($2::int - 1)
+       GROUP BY fn.nutrient_id`,
+      [req.userId, days]
+    ),
+    pool.query(
+      `SELECT COUNT(DISTINCT logged_at::date) AS days_with_data
+       FROM food_logs
+       WHERE user_id = $1 AND logged_at::date >= CURRENT_DATE - ($2::int - 1)`,
+      [req.userId, days]
+    ),
+  ]);
+
+  res.json({
+    daysWithData: Number(daysResult.rows[0].days_with_data),
+    nutrients: totalsResult.rows,
+  });
+}));
+
 // Current logging streak — consecutive calendar days (ending today or
 // yesterday) with at least one food logged.
 logsRouter.get("/streak", asyncHandler(async (req, res) => {

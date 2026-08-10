@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import {
   Apple,
+  CalendarRange,
   Dumbbell,
   Image,
   LayoutDashboard,
@@ -9,6 +10,7 @@ import {
   NotebookText,
   ScanBarcode,
   Settings,
+  Timer,
   UtensilsCrossed,
 } from 'lucide-react'
 import { Logo } from '@/components/logo'
@@ -20,8 +22,10 @@ const NAV_ITEMS = [
   { to: '/', label: 'Diary', icon: NotebookText },
   { to: '/foods', label: 'Foods', icon: Apple },
   { to: '/meals', label: 'Meals', icon: UtensilsCrossed },
+  { to: '/meal-plan', label: 'Plan', icon: CalendarRange },
   { to: '/scan', label: 'Scan', icon: ScanBarcode },
   { to: '/workouts', label: 'Workouts', icon: Dumbbell },
+  { to: '/fasting', label: 'Fasting', icon: Timer },
   { to: '/progress', label: 'Progress', icon: Image },
   { to: '/coach', label: 'Coach', icon: MessageCircle },
   { to: '/settings', label: 'Settings', icon: Settings },

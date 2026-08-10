@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { AppLayout } from '@/components/app-layout'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { LineTrendChart } from '@/components/trend-charts'
+import { RestTimer } from '@/components/rest-timer'
+import { PlateCalculator } from '@/components/plate-calculator'
+import { StravaCard } from '@/components/strava-card'
 import { cn } from '@/lib/utils'
 import {
   getWorkoutsForMonth,
@@ -12,12 +16,17 @@ import {
   deleteWorkout,
   getExerciseHistory,
   getWorkoutVolume,
+  getOneRepMaxTrend,
+  getProfile,
   type Workout,
   type WorkoutExercise,
   type FeltRating,
   type ExerciseHistoryEntry,
   type WeeklyVolume,
+  type OneRepMaxPoint,
+  type Profile,
 } from '@/api'
+import { liftKeyForExerciseName, strengthBracket } from '@/lib/strengthStandards'
 
 const FELT_OPTIONS: { value: FeltRating; label: string }[] = [
   { value: 'great', label: 'Great' },
@@ -82,6 +91,21 @@ interface EditForm {
 const EMPTY_FORM: EditForm = { isRestDay: false, summary: '', felt: null, exercises: [] }
 
 export function WorkoutsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  // Snapshotted once on mount rather than read live from searchParams — the
+  // URL gets stripped of "strava" right below, and reading it live would
+  // make the redirect-back banner disappear before it's ever rendered.
+  const [stravaParam] = useState(() => searchParams.get('strava'))
+
+  useEffect(() => {
+    if (searchParams.get('strava')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('strava')
+      setSearchParams(next, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const [cursor, setCursor] = useState(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() + 1 }
@@ -89,6 +113,9 @@ export function WorkoutsPage() {
   const [workouts, setWorkouts] = useState<Record<string, Workout>>({})
   const [exerciseHistory, setExerciseHistory] = useState<Record<string, ExerciseHistoryEntry>>({})
   const [volume, setVolume] = useState<WeeklyVolume[]>([])
+  const [oneRmExercise, setOneRmExercise] = useState<string>('')
+  const [oneRmData, setOneRmData] = useState<OneRepMaxPoint[]>([])
+  const [profile, setProfile] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>(todayKey())
   const [form, setForm] = useState<EditForm>(EMPTY_FORM)
@@ -145,6 +172,41 @@ export function WorkoutsPage() {
     )
   }, [exerciseHistory])
 
+  const loggedExerciseNames = useMemo(
+    () => Object.values(exerciseHistory).map((h) => h.name).sort((a, b) => a.localeCompare(b)),
+    [exerciseHistory]
+  )
+
+  useEffect(() => {
+    if (!oneRmExercise && loggedExerciseNames.length > 0) {
+      setOneRmExercise(loggedExerciseNames[0])
+    }
+  }, [loggedExerciseNames, oneRmExercise])
+
+  useEffect(() => {
+    if (!oneRmExercise) {
+      setOneRmData([])
+      return
+    }
+    getOneRepMaxTrend(oneRmExercise)
+      .then(setOneRmData)
+      .catch((e) => setError((e as Error).message))
+  }, [oneRmExercise])
+
+  useEffect(() => {
+    getProfile()
+      .then(setProfile)
+      .catch(() => {})
+  }, [])
+
+  const strengthInfo = useMemo(() => {
+    if (!profile || oneRmData.length === 0) return null
+    const liftKey = liftKeyForExerciseName(oneRmExercise)
+    if (!liftKey) return null
+    const latest = Number(oneRmData[oneRmData.length - 1].e1rm)
+    return strengthBracket(liftKey, profile.gender, latest, profile.weightKg)
+  }, [profile, oneRmExercise, oneRmData])
+
   const cells = useMemo(() => {
     const firstWeekday = new Date(cursor.year, cursor.month - 1, 1).getDay()
     const daysInMonth = new Date(cursor.year, cursor.month, 0).getDate()
@@ -195,6 +257,9 @@ export function WorkoutsPage() {
         setExerciseHistory(map)
       })
       refreshVolume()
+      if (oneRmExercise) {
+        getOneRepMaxTrend(oneRmExercise).then(setOneRmData).catch(() => {})
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -231,6 +296,17 @@ export function WorkoutsPage() {
       {error && (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
           {error}
+        </p>
+      )}
+
+      {stravaParam === 'error' && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          Connecting to Strava failed. Try again.
+        </p>
+      )}
+      {stravaParam === 'not_configured' && (
+        <p className="rounded-md border border-border bg-accent px-4 py-2 text-sm text-card-foreground">
+          Strava isn't set up yet — add real STRAVA_CLIENT_ID/SECRET in server/.env.
         </p>
       )}
 
@@ -443,6 +519,54 @@ export function WorkoutsPage() {
         </CardContent>
       </Card>
 
+      <RestTimer />
+
+      <PlateCalculator />
+
+      {loggedExerciseNames.length > 0 && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Estimated 1-rep max</CardTitle>
+              <CardDescription>
+                Epley formula (weight × (1 + reps ÷ 30)) applied to your heaviest set logged each day.
+              </CardDescription>
+            </div>
+            <select
+              value={oneRmExercise}
+              onChange={(e) => setOneRmExercise(e.target.value)}
+              className="h-9 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm text-card-foreground outline-none"
+            >
+              {loggedExerciseNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </CardHeader>
+          <CardContent>
+            <LineTrendChart
+              data={oneRmData.map((p) => ({ date: p.date, value: Number(p.e1rm) }))}
+              unit="kg"
+              decimals={1}
+              emptyMessages={{
+                none: 'Log weighted sets for this exercise to see your 1RM trend.',
+                some: 'Log a few more sessions to see your 1RM trend.',
+              }}
+            />
+            {strengthInfo && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                <span className="font-medium text-card-foreground">{strengthInfo.level}</span>
+                {' '}— {strengthInfo.ratio.toFixed(2)}x bodyweight.
+                {strengthInfo.nextLevel &&
+                  ` ${strengthInfo.kgToNextLevel?.toFixed(1)}kg to ${strengthInfo.nextLevel}.`}
+                {' '}(Approximate population benchmarks, not a precise standard.)
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Weekly volume</CardTitle>
@@ -462,6 +586,8 @@ export function WorkoutsPage() {
           />
         </CardContent>
       </Card>
+
+      <StravaCard justConnected={stravaParam === 'connected'} />
     </AppLayout>
   )
 }
